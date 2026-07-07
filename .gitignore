@@ -5,3 +5,4 @@ db/reviews.db
 .env
 _calibration*.html
 _calibration*.json
+KWORK_OFFER.md
