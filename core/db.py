@@ -284,13 +284,16 @@ def mark_notified(conn: sqlite3.Connection, review_id: int) -> None:
     conn.commit()
 
 
-def get_review_sentiment_counts_since(conn: sqlite3.Connection, since_iso: str) -> dict:
+def get_review_sentiment_counts_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> dict:
     """Считаем по review_date (когда клиент реально написал отзыв), а не по
     notified_at/collected_at — оба этих поля при backfill проставляются "сейчас" всей
     пачкой (мы обработали 7 месяцев истории за один прогон), и любое из них выдало бы
     "78 новых отзывов за сутки" вместо честных "0 сегодня, это старая история"."""
     since_dt = parse_review_date(since_iso)
-    rows = conn.execute("SELECT sentiment, review_date FROM reviews WHERE review_date IS NOT NULL").fetchall()
+    rows = conn.execute(
+        "SELECT sentiment, review_date FROM reviews WHERE location_id=? AND review_date IS NOT NULL",
+        (location_id,),
+    ).fetchall()
 
     counts: dict[str, int] = {}
     for row in rows:
@@ -374,3 +377,60 @@ def resolve_alert(conn: sqlite3.Connection, alert_id: int) -> None:
         (now_iso(), alert_id),
     )
     conn.commit()
+
+
+# ============================================================================
+# Еженедельная сводка (main_weekly_summary.py) — итоги ЗА ПЕРИОД (7 дней), в отличие
+# от main_digest.py (снимок текущего состояния на момент запуска)
+# ============================================================================
+
+def get_alerts_opened_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM alerts WHERE location_id=? AND first_triggered_at >= ? ORDER BY first_triggered_at",
+        (location_id, since_iso),
+    ).fetchall()
+
+
+def get_alerts_resolved_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM alerts WHERE location_id=? AND resolved_at >= ? ORDER BY resolved_at",
+        (location_id, since_iso),
+    ).fetchall()
+
+
+def get_top_tags_since(conn: sqlite3.Connection, location_id: str, since_iso: str, limit: int = 3) -> list[dict]:
+    """Топ тегов по числу упоминаний (review_tags) за период, отфильтровано по
+    review_date (дата самого отзыва), не по дате разбора — тот же принцип, что и в
+    get_review_sentiment_counts_since, иначе backfill исказил бы счёт."""
+    since_dt = parse_review_date(since_iso)
+    rows = conn.execute(
+        """SELECT rt.tag, r.review_date FROM review_tags rt
+           JOIN reviews r ON rt.review_id = r.id
+           WHERE r.location_id = ? AND r.review_date IS NOT NULL""",
+        (location_id,),
+    ).fetchall()
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt >= since_dt:
+            counts[row["tag"]] = counts.get(row["tag"], 0) + 1
+
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return [{"tag": tag, "count": count} for tag, count in top]
+
+
+def get_overdue_reviews_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[sqlite3.Row]:
+    """Отзывы, чей дедлайн ответа попал в период (since_iso .. сейчас) и всё ещё не
+    отвечены — для еженедельной сводки "сколько просрочек случилось на этой неделе",
+    в отличие от main_watchdog.py (все текущие просрочки независимо от того, когда
+    наступил дедлайн)."""
+    return conn.execute(
+        """SELECT * FROM reviews
+           WHERE location_id=? AND reply_status='pending' AND reply_sla_deadline IS NOT NULL
+           AND reply_sla_deadline >= ? AND reply_sla_deadline < ?""",
+        (location_id, since_iso, now_iso()),
+    ).fetchall()

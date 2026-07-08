@@ -18,7 +18,7 @@ def main():
 
     for location_id in db.get_locations(conn):
         location_name = db.get_location_name(conn, location_id)
-        counts = db.get_review_sentiment_counts_since(conn, since)
+        counts = db.get_review_sentiment_counts_since(conn, location_id, since)
         location_alerts = [a for a in all_alerts if a["location_id"] == location_id]
         location_overdue = [r for r in overdue if r["location_id"] == location_id]
 

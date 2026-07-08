@@ -128,6 +128,48 @@ def format_watchdog_message(overdue: list[dict], location_name: str) -> str:
     return "\n".join(lines)
 
 
+def format_weekly_summary_message(
+    location_name: str,
+    sentiment_counts: dict,
+    top_tags: list[dict],
+    alerts_opened: list[dict],
+    alerts_resolved: list[dict],
+    overdue_count: int,
+) -> str:
+    """Еженедельная сводка (main_weekly_summary.py, понедельник 08:00 МСК) — итоги
+    ЗА ПРОШЕДШУЮ НЕДЕЛЮ, в отличие от format_digest_message (снимок текущего
+    состояния на момент запуска, без привязки к периоду)."""
+    total = sum(sentiment_counts.values())
+    lines = [
+        f"🗓️ <b>Итоги недели — {_esc(location_name)}</b>",
+        "",
+        f"Отзывов за неделю: {total} "
+        f"(🟢 {sentiment_counts.get('positive', 0)} · 🟡 {sentiment_counts.get('neutral', 0)} · 🔴 {sentiment_counts.get('negative', 0)})",
+    ]
+
+    if top_tags:
+        lines.append("")
+        lines.append("<b>Топ тем недели:</b>")
+        for t in top_tags:
+            lines.append(f"  • <b>{_esc(t['tag'])}</b> — {t['count']} упоминаний")
+
+    lines.append("")
+    if alerts_opened or alerts_resolved:
+        lines.append(f"<b>Алерты:</b> открыто {len(alerts_opened)}, закрыто {len(alerts_resolved)}")
+        for a in alerts_opened:
+            icon = SEVERITY_ICON.get(a["severity"], "•")
+            lines.append(f"  {icon} открыт — <b>{_esc(a['tag'])}</b> ({a['count_in_window']} за {a['window_matched']} дн.)")
+        for a in alerts_resolved:
+            lines.append(f"  🟢 закрыт — <b>{_esc(a['tag'])}</b>")
+    else:
+        lines.append("Алерты за неделю не менялись.")
+
+    lines.append("")
+    lines.append(f"⏰ Просрочено по SLA за неделю: {overdue_count}")
+
+    return "\n".join(lines)
+
+
 def format_weekly_stale_message(stale: list[dict], location_name: str) -> str:
     """Раз в неделю (main_weekly_stale.py) — отзывы, просроченные дольше watchdog-окна,
     но ещё не списанные совсем. Без срочного тона: отвечать уже не горит, но забывать
