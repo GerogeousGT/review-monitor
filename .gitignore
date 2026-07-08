@@ -1,8 +1,9 @@
 .venv/
 __pycache__/
 .pytest_cache/
-db/reviews.db
 .env
+clients/*/.env
+clients/*/db/
 _calibration*.html
 _calibration*.json
 KWORK_OFFER.md

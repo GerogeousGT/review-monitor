@@ -1,19 +1,20 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .dates import parse_review_date
-from .env import PROJECT_ROOT
-
-DB_PATH = PROJECT_ROOT / "db" / "reviews.db"
-SCHEMA_PATH = PROJECT_ROOT / "db" / "schema.sql"
+from .env import PROJECT_ROOT, get_client_root
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
+def get_connection(db_path: Path = None) -> sqlite3.Connection:
+    """db_path по умолчанию вычисляется лениво (не при импорте модуля) — иначе
+    CLIENT_SLUG, установленный уже после импорта core.db, не учитывался бы."""
+    db_path = db_path or (get_client_root() / "db" / "reviews.db")
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -25,7 +26,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         "SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'"
     ).fetchone()
     if not existing:
-        with open(SCHEMA_PATH, encoding="utf-8") as f:
+        schema_path = PROJECT_ROOT / "db" / "schema.sql"
+        with open(schema_path, encoding="utf-8") as f:
             conn.executescript(f.read())
         conn.commit()
     _migrate(conn)
@@ -242,12 +244,32 @@ def update_reply_draft(conn: sqlite3.Connection, review_id: int, review_type: st
     conn.commit()
 
 
-def get_overdue_reviews(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def get_overdue_reviews(conn: sqlite3.Connection, recent_cutoff_days: int = 90) -> list[sqlite3.Row]:
+    """Просроченные по SLA отзывы моложе recent_cutoff_days (по review_date) — для
+    ежедневного watchdog. Старые просрочки уходят в get_stale_overdue_reviews, чтобы
+    один и тот же полугодовой "хвост" не всплывал в срочных уведомлениях бесконечно."""
+    recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=recent_cutoff_days)).isoformat()
     return conn.execute(
         """SELECT * FROM reviews
            WHERE reply_status='pending' AND reply_sla_deadline IS NOT NULL
-           AND reply_sla_deadline < ?""",
-        (now_iso(),),
+           AND reply_sla_deadline < ? AND review_date >= ?""",
+        (now_iso(), recent_cutoff),
+    ).fetchall()
+
+
+def get_stale_overdue_reviews(
+    conn: sqlite3.Connection, recent_cutoff_days: int = 90, stale_cutoff_days: int = 180
+) -> list[sqlite3.Row]:
+    """Просроченные отзывы в возрасте [recent_cutoff_days; stale_cutoff_days) по
+    review_date — уже не срочные, но ещё не списаны совсем. Раз в неделю напоминаем
+    списком, не спамим ежедневно."""
+    recent_cutoff = (datetime.now(timezone.utc) - timedelta(days=recent_cutoff_days)).isoformat()
+    stale_cutoff = (datetime.now(timezone.utc) - timedelta(days=stale_cutoff_days)).isoformat()
+    return conn.execute(
+        """SELECT * FROM reviews
+           WHERE reply_status='pending' AND reply_sla_deadline IS NOT NULL
+           AND reply_sla_deadline < ? AND review_date < ? AND review_date >= ?""",
+        (now_iso(), recent_cutoff, stale_cutoff),
     ).fetchall()
 
 

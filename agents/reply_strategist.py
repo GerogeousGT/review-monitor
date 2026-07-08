@@ -6,7 +6,7 @@
 """
 import json
 
-from core.env import PROJECT_ROOT
+from core.env import get_client_root
 from core.llm_provider import get_client, MODEL
 
 
@@ -45,7 +45,7 @@ reply_draft пустым, а в internal_note объясни подозрени�
 
 
 def load_tone_guide(path: str) -> str:
-    with open(PROJECT_ROOT / path, encoding="utf-8") as f:
+    with open(get_client_root() / path, encoding="utf-8") as f:
         return f.read()
 
 

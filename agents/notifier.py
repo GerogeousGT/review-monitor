@@ -126,3 +126,20 @@ def format_watchdog_message(overdue: list[dict], location_name: str) -> str:
             f"  • #{r['id']} {platform}, {sentiment_dot} {r['sentiment']} — дедлайн был {r['reply_sla_deadline'][:10]}"
         )
     return "\n".join(lines)
+
+
+def format_weekly_stale_message(stale: list[dict], location_name: str) -> str:
+    """Раз в неделю (main_weekly_stale.py) — отзывы, просроченные дольше watchdog-окна,
+    но ещё не списанные совсем. Без срочного тона: отвечать уже не горит, но забывать
+    про них рано (полная статистика по возрасту неотвеченных — в финальном дашборде)."""
+    lines = [
+        f"📅 Давние неотвеченные (<b>{_esc(location_name)}</b>) — {len(stale)} отзыв(ов), "
+        f"без срочности, но ещё не списаны:"
+    ]
+    for r in stale:
+        platform = PLATFORM_LABEL.get(r["platform"], r["platform"])
+        sentiment_dot = SENTIMENT_ICON.get(r["sentiment"], "")
+        lines.append(
+            f"  • #{r['id']} {platform}, {sentiment_dot} {r['sentiment']} — дедлайн был {r['reply_sla_deadline'][:10]}"
+        )
+    return "\n".join(lines)

@@ -5,9 +5,11 @@
 #   1. Секция "КЛИЕНТ" ниже — название, точки, ссылки на площадки
 #   2. tone_of_voice.md — переписать под голос нового бренда (шаблон структуры
 #      можно оставить, содержание — нет)
-#   3. .env — СВОИ TELEGRAM_BOT_TOKEN и TELEGRAM_CHAT_ID (не бот Жоржа и не
-#      бот предыдущего клиента). PROXYAPI_KEY/APIFY_API_TOKEN — общие, не трогать.
-#   4. db/reviews.db — НЕ копировать от старого клиента, пусть создастся с нуля
+#   3. clients/<slug>/.env — СВОИ TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID и APIFY_API_TOKEN
+#      (не бот/аккаунт Жоржа и не бот/аккаунт предыдущего клиента — разный биллинг
+#      Apify на разных клиентов). Корневой .env — только fallback для реально общих
+#      ключей (PROXYAPI_KEY/GROQ_API_KEY), если один аккаунт LLM-провайдера на всех.
+#   4. clients/<slug>/db/ — НЕ копировать от старого клиента, пусть создастся с нуля
 #      (main_collect.py сам создаст пустую БД при первом запуске)
 #   5. Секция "ШАБЛОН ПОД НИШУ" ниже — если новый клиент из ДРУГОЙ отрасли
 #      (не фитнес-клуб) — переписать теги/категории полностью под его бизнес.
@@ -30,7 +32,7 @@ client:
       platforms:
         - type: 2gis
           url: "https://2gis.ru/tyumen/firm/70000001061124017/tab/reviews"
-          max_reviews: 10        # Apify (zen-studio/2gis-reviews-scraper) тарифицируется за отзыв в выдаче — не тянем больше нужного
+          max_reviews: 5         # Apify (zen-studio/2gis-reviews-scraper) тарифицируется за отзыв в выдаче — не тянем больше нужного. Опционально per-client: увеличить, если клуб реально штампует отзывы пачками
           lookback_days: 60      # reviewsStartDate — выдача не строго по дате, без фильтра проскакивают древние отзывы
           poll_interval_hours: 24  # 1 раз в день, отдельно от остальных площадок (см. collection.poll_interval_hours)
         - type: yandex_maps
@@ -45,7 +47,7 @@ tone_of_voice:
 
 notifications:
   telegram_chat_id: ""   # заполнить перед запуском (свой чат/бот на нового клиента, см. чек-лист выше)
-  digest_time: "09:00"
+  digest_time: "18:00"   # МСК; systemd timer настраивается отдельно (см. PLAN.md/README.md)
 
 
 # =============================================================================
@@ -135,8 +137,15 @@ tags:
 collection:
   backfill_lookback_days: 180   # глубина истории при первом запуске (не тянем всю историю за 10 лет)
   poll_interval_hours: 6        # как часто проверять новые отзывы (кроме 2ГИС — см. override у площадки)
-  watchdog_window_days: 45      # сколько дней "гнаться" за неотвеченным отзывом, дальше не перепроверяем
   discover_new_platforms: true  # v2: раз в неделю искать площадки, которые ещё не добавлены вручную
+
+  # Окна для неотвеченных отзывов (по review_date — дате самого отзыва, не дедлайна SLA),
+  # см. main_watchdog.py / main_weekly_stale.py:
+  #   0 .. watchdog_recent_days           -> суточный watchdog (ещё срочно)
+  #   watchdog_recent_days .. stale_cutoff -> недельный обзор (уже не срочно, но не забыто)
+  #   > watchdog_stale_cutoff_days        -> нигде не показывается, но остаётся pending в БД для статистики
+  watchdog_recent_days: 90
+  watchdog_stale_cutoff_days: 180
 
 alert_rules:
   default:

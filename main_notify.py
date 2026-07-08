@@ -1,11 +1,13 @@
-"""Полный цикл уведомлений: новые отзывы → изменения алертов → просрочки по SLA.
+"""Цикл уведомлений (запускается каждые 6ч): новые отзывы → изменения алертов.
+Просрочки по SLA вынесены в main_watchdog.py (суточный запуск) и main_weekly_stale.py
+(недельный) — иначе один и тот же старый "хвост" слался бы заново каждые 6 часов.
 Ничего не постит на площадки — только шлёт в Telegram, решение и ответ всегда за человеком."""
 from core import db
 from agents.alert_engine import recompute_all
 from core.config import load_config
 from agents.notifier import (
     send_message, format_review_message, format_alert_message,
-    format_resolved_message, format_watchdog_message,
+    format_resolved_message,
 )
 
 
@@ -29,14 +31,6 @@ def main():
             send_message(format_resolved_message(change, location_name))
         else:
             send_message(format_alert_message(change, location_name))
-        sent += 1
-
-    overdue_by_location: dict[str, list[dict]] = {}
-    for r in db.get_overdue_reviews(conn):
-        overdue_by_location.setdefault(r["location_id"], []).append(dict(r))
-    for location_id, overdue in overdue_by_location.items():
-        location_name = db.get_location_name(conn, location_id)
-        send_message(format_watchdog_message(overdue, location_name))
         sent += 1
 
     print(f"Отправлено сообщений: {sent}")

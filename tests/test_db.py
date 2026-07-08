@@ -65,3 +65,39 @@ def test_review_sentiment_counts_since_uses_review_date(conn):
     since = (now - timedelta(hours=24)).isoformat()
     counts = db.get_review_sentiment_counts_since(conn, since)
     assert counts.get("positive", 0) == 1  # только fresh_review, старый не в счёт
+
+
+def _insert_overdue(conn, external_id: str, days_old: int, now: datetime) -> int:
+    """Отзыв с review_date days_old дней назад, дедлайн ответа уже просрочен (вчера)."""
+    review = {
+        "external_id": external_id, "author": None, "rating": 2, "text": "плохо",
+        "date": (now - timedelta(days=days_old)).isoformat(),
+    }
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", review)
+    review_id = conn.execute(
+        "SELECT id FROM reviews WHERE external_review_id=?", (external_id,)
+    ).fetchone()["id"]
+    deadline = (now - timedelta(days=1)).isoformat()
+    db.update_review_sentiment(conn, review_id, "negative", 8, "тест", False, deadline)
+    return review_id
+
+
+def test_overdue_reviews_split_by_age(conn):
+    """Регрессия: раньше get_overdue_reviews возвращал ВСЕ просрочки без верхней границы —
+    полугодовой "хвост" слался бы в watchdog заново каждый прогон 6-часового цикла."""
+    now = datetime.now(timezone.utc)
+    recent_id = _insert_overdue(conn, "recent", days_old=30, now=now)     # в пределах 90 дней
+    stale_id = _insert_overdue(conn, "stale", days_old=120, now=now)      # 90-180 дней
+    ancient_id = _insert_overdue(conn, "ancient", days_old=250, now=now)  # старше 180 дней
+
+    recent_ids = {r["id"] for r in db.get_overdue_reviews(conn, recent_cutoff_days=90)}
+    stale_ids = {r["id"] for r in db.get_stale_overdue_reviews(conn, recent_cutoff_days=90, stale_cutoff_days=180)}
+
+    assert recent_ids == {recent_id}
+    assert stale_ids == {stale_id}
+    assert ancient_id not in recent_ids
+    assert ancient_id not in stale_ids  # старше 180 дней — нигде не всплывает в уведомлениях
+
+    # но отзыв остаётся в БД как pending — для статистики в финальном дашборде
+    row = conn.execute("SELECT reply_status FROM reviews WHERE id=?", (ancient_id,)).fetchone()
+    assert row["reply_status"] == "pending"
