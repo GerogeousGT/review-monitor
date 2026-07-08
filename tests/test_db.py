@@ -103,9 +103,10 @@ def test_overdue_reviews_split_by_age(conn):
     assert row["reply_status"] == "pending"
 
 
-def test_top_tags_since_filters_by_location_and_period(conn):
-    """Регрессия-подобный тест: топ тегов должен учитывать только эту локацию и только
-    отзывы внутри периода (review_date), а не всю историю всех точек."""
+def test_top_tags_by_sentiment_filters_location_period_and_sentiment(conn):
+    """Топ тегов должен учитывать только эту локацию, только отзывы внутри периода
+    (review_date) и только нужный знак тональности — руководителю нужно раздельно
+    "что хвалят" и "что ругают", смешивать позитив с негативом в одном счёте нельзя."""
     now = datetime.now(timezone.utc)
     db.ensure_location(conn, "loc2", "Другой клуб", "Москва")
 
@@ -117,18 +118,35 @@ def test_top_tags_since_filters_by_location_and_period(conn):
 
     fresh1 = _review("t1", days_old=1)
     fresh2 = _review("t2", days_old=2)
-    old = _review("t3", days_old=30)  # старше 7-дневного окна
+    old = _review("t3", days_old=30)  # старше окна
     other_loc = _review("t4", days_old=1, loc="loc2")  # другая локация
+    negative_review = _review("t5", days_old=1)
 
     db.insert_review_tag(conn, fresh1, "бассейн", "positive", "evidence")
     db.insert_review_tag(conn, fresh2, "бассейн", "positive", "evidence")
     db.insert_review_tag(conn, old, "бассейн", "positive", "evidence")  # вне окна — не в счёт
     db.insert_review_tag(conn, other_loc, "бассейн", "positive", "evidence")  # чужая точка — не в счёт
+    db.insert_review_tag(conn, negative_review, "бассейн", "negative", "evidence")  # другой знак — не в позитив
 
     since = (now - timedelta(days=7)).isoformat()
-    top = db.get_top_tags_since(conn, "loc1", since, limit=3)
+    top_positive = db.get_top_tags_by_sentiment_since(conn, "loc1", since, "positive", limit=3, min_count=2)
 
-    assert top == [{"tag": "бассейн", "count": 2}]
+    assert top_positive == [{"tag": "бассейн", "count": 2}]
+
+
+def test_top_tags_by_sentiment_below_min_count_is_empty(conn):
+    """Регрессия на реальную жалобу: 3 темы с 1 упоминанием каждая — это шум, не топ.
+    Функция должна честно вернуть пусто, а не подсунуть случайные темы как "топ"."""
+    now = datetime.now(timezone.utc)
+    r = {"external_id": "single", "author": None, "rating": 5, "text": "т", "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+    review_id = conn.execute("SELECT id FROM reviews WHERE external_review_id='single'").fetchone()["id"]
+    db.insert_review_tag(conn, review_id, "групповые программы", "positive", "evidence")
+
+    since = (now - timedelta(days=7)).isoformat()
+    top = db.get_top_tags_by_sentiment_since(conn, "loc1", since, "positive", limit=3, min_count=2)
+
+    assert top == []
 
 
 def test_alerts_opened_and_resolved_since(conn):

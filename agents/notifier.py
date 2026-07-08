@@ -130,39 +130,57 @@ def format_watchdog_message(overdue: list[dict], location_name: str) -> str:
 
 def format_weekly_summary_message(
     location_name: str,
-    sentiment_counts: dict,
-    top_tags: list[dict],
-    alerts_opened: list[dict],
-    alerts_resolved: list[dict],
+    week_counts: dict,
+    month_counts: dict,
+    top_positive_month: list[dict],
+    top_negative_month: list[dict],
+    active_alerts: list[dict],
     overdue_count: int,
 ) -> str:
-    """Еженедельная сводка (main_weekly_summary.py, понедельник 08:00 МСК) — итоги
-    ЗА ПРОШЕДШУЮ НЕДЕЛЮ, в отличие от format_digest_message (снимок текущего
-    состояния на момент запуска, без привязки к периоду)."""
-    total = sum(sentiment_counts.values())
+    """Еженедельная сводка (main_weekly_summary.py, понедельник 08:00 МСК) — отвечает
+    на вопрос руководителя "что делать с этой статистикой", не просто "что обсуждали":
+    объём неделя+месяц (неделя одна часто слишком мала, чтобы видеть тренд), топ
+    хвалимого и топ ругаемого ОТДЕЛЬНО (за месяц — за неделю почти всегда шум из
+    1-2 упоминаний), и то, что уже прошло порог "системной проблемы" в Alert Engine —
+    не отдельный расчёт, а прямой список активных yellow/red алертов."""
+    week_total = sum(week_counts.values())
+    month_total = sum(month_counts.values())
     lines = [
         f"🗓️ <b>Итоги недели — {_esc(location_name)}</b>",
         "",
-        f"Отзывов за неделю: {total} "
-        f"(🟢 {sentiment_counts.get('positive', 0)} · 🟡 {sentiment_counts.get('neutral', 0)} · 🔴 {sentiment_counts.get('negative', 0)})",
+        f"Отзывов за неделю: {week_total} "
+        f"(🟢 {week_counts.get('positive', 0)} · 🟡 {week_counts.get('neutral', 0)} · 🔴 {week_counts.get('negative', 0)})",
+        f"Отзывов за месяц: {month_total} "
+        f"(🟢 {month_counts.get('positive', 0)} · 🟡 {month_counts.get('neutral', 0)} · 🔴 {month_counts.get('negative', 0)})",
     ]
 
-    if top_tags:
-        lines.append("")
-        lines.append("<b>Топ тем недели:</b>")
-        for t in top_tags:
-            lines.append(f"  • <b>{_esc(t['tag'])}</b> — {t['count']} упоминаний")
+    lines.append("")
+    if top_positive_month:
+        lines.append("<b>Чаще всего хвалят (за месяц):</b>")
+        for t in top_positive_month:
+            lines.append(f"  🟢 <b>{_esc(t['tag'])}</b> — {t['count']}")
+    else:
+        lines.append("Чаще всего хвалят: недостаточно данных за месяц.")
 
     lines.append("")
-    if alerts_opened or alerts_resolved:
-        lines.append(f"<b>Алерты:</b> открыто {len(alerts_opened)}, закрыто {len(alerts_resolved)}")
-        for a in alerts_opened:
-            icon = SEVERITY_ICON.get(a["severity"], "•")
-            lines.append(f"  {icon} открыт — <b>{_esc(a['tag'])}</b> ({a['count_in_window']} за {a['window_matched']} дн.)")
-        for a in alerts_resolved:
-            lines.append(f"  🟢 закрыт — <b>{_esc(a['tag'])}</b>")
+    if top_negative_month:
+        lines.append("<b>Чаще всего ругают (за месяц):</b>")
+        for t in top_negative_month:
+            lines.append(f"  🔴 <b>{_esc(t['tag'])}</b> — {t['count']}")
     else:
-        lines.append("Алерты за неделю не менялись.")
+        lines.append("Чаще всего ругают: недостаточно данных за месяц.")
+
+    lines.append("")
+    if active_alerts:
+        lines.append(f"<b>Системный негатив (открытые алерты, {len(active_alerts)}):</b>")
+        for a in active_alerts:
+            icon = SEVERITY_ICON.get(a["severity"], "•")
+            ack = " (в работе)" if a["status"] == "acknowledged" else ""
+            lines.append(
+                f"  {icon} <b>{_esc(a['tag'])}</b> — {a['count_in_window']} за {a['window_matched']} дн.{ack}"
+            )
+    else:
+        lines.append("🟢 Системного негатива нет — открытых алертов нет.")
 
     lines.append("")
     lines.append(f"⏰ Просрочено по SLA за неделю: {overdue_count}")

@@ -398,16 +398,23 @@ def get_alerts_resolved_since(conn: sqlite3.Connection, location_id: str, since_
     ).fetchall()
 
 
-def get_top_tags_since(conn: sqlite3.Connection, location_id: str, since_iso: str, limit: int = 3) -> list[dict]:
-    """Топ тегов по числу упоминаний (review_tags) за период, отфильтровано по
-    review_date (дата самого отзыва), не по дате разбора — тот же принцип, что и в
-    get_review_sentiment_counts_since, иначе backfill исказил бы счёт."""
+def get_top_tags_by_sentiment_since(
+    conn: sqlite3.Connection, location_id: str, since_iso: str, sentiment: str, limit: int = 3, min_count: int = 2
+) -> list[dict]:
+    """Топ тегов ОТДЕЛЬНО по знаку (sentiment='positive'|'negative') за период —
+    руководителю важно не "что вообще обсуждали", а "что хвалят" и "что ругают"
+    раздельно, иначе тег без знака ничего не говорит о том, чинить или хвалить.
+
+    min_count отсекает шум: при малом числе отзывов за неделю тема с 1 упоминанием
+    статистически неотличима от случайности — не тема "топ", а совпадение. Если ни
+    одна тема не набрала min_count, возвращается пустой список (вызывающая сторона
+    должна показать "недостаточно данных", не подсовывать случайные темы как топ)."""
     since_dt = parse_review_date(since_iso)
     rows = conn.execute(
         """SELECT rt.tag, r.review_date FROM review_tags rt
            JOIN reviews r ON rt.review_id = r.id
-           WHERE r.location_id = ? AND r.review_date IS NOT NULL""",
-        (location_id,),
+           WHERE r.location_id = ? AND r.review_date IS NOT NULL AND rt.tag_sentiment = ?""",
+        (location_id, sentiment),
     ).fetchall()
 
     counts: dict[str, int] = {}
@@ -420,7 +427,7 @@ def get_top_tags_since(conn: sqlite3.Connection, location_id: str, since_iso: st
             counts[row["tag"]] = counts.get(row["tag"], 0) + 1
 
     top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
-    return [{"tag": tag, "count": count} for tag, count in top]
+    return [{"tag": tag, "count": count} for tag, count in top if count >= min_count]
 
 
 def get_overdue_reviews_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[sqlite3.Row]:
