@@ -48,7 +48,8 @@ CLIENT_SLUG=worldclass .venv/Scripts/python main_notify.py
 2. Скопировать `client_config.yaml` от похожего клиента, пройти чек-лист в его шапке
 3. Написать/скопировать `tone_of_voice.md` под голос нового бренда
 4. Завести `clients/<slug>/.env`: свой Telegram-бот (не переиспользовать чужого бота), свой `APIFY_API_TOKEN`
-5. Прогонять всё с `CLIENT_SLUG=<slug>` (или `./run_cycle.sh <slug>`)
+5. **Первый сбор истории — ОБЯЗАТЕЛЬНО с флагом:** `CLIENT_SLUG=<slug> python main_collect.py --backfill`. Без флага (или если позже понадобится доливать в БД старые отзывы вручную, в обход обычного цикла) следующий плановый `main_notify.py` разошлёт карточку по КАЖДОМУ вставленному отзыву одним пакетом — на практике это уже было 90 сообщений разом (см. CHANGELOG 2026-07-09)
+6. Дальше — обычный цикл: `CLIENT_SLUG=<slug>` (или `./run_cycle.sh <slug>`) без флага
 
 Уже развёрнуто: `clients/worldclass` (пилот, продакшн), `clients/daudelsport` (второй клиент, в процессе — см. PLAN.md).
 

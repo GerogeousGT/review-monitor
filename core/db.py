@@ -161,12 +161,19 @@ def insert_tag_if_new(conn: sqlite3.Connection, tag: str, category: str = "не 
 # Отзывы
 # ============================================================================
 
-def insert_review_if_new(conn: sqlite3.Connection, location_id: str, platform: str, review: dict) -> bool:
-    """review: {external_id, author, rating, text, date}. Возвращает True, если отзыв новый."""
+def insert_review_if_new(
+    conn: sqlite3.Connection, location_id: str, platform: str, review: dict, skip_notify: bool = False
+) -> bool:
+    """review: {external_id, author, rating, text, date}. Возвращает True, если отзыв новый.
+
+    skip_notify=True сразу проставляет notified_at — для backfill (первый крупный
+    импорт истории), чтобы main_notify.py не разослал карточку по каждому вставленному
+    отзыву при следующем плановом прогоне (см. main_collect.py --backfill)."""
+    notified_at = now_iso() if skip_notify else None
     cur = conn.execute(
         """INSERT OR IGNORE INTO reviews
-           (location_id, platform, external_review_id, author, rating, text, review_date, collected_at, reply_status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (location_id, platform, external_review_id, author, rating, text, review_date, collected_at, reply_status, notified_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             location_id,
             platform,
@@ -177,6 +184,7 @@ def insert_review_if_new(conn: sqlite3.Connection, location_id: str, platform: s
             review.get("date"),
             now_iso(),
             review.get("reply_status", "pending"),
+            notified_at,
         ),
     )
     conn.commit()

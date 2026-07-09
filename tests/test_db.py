@@ -25,6 +25,23 @@ def test_insert_review_if_new_is_idempotent(conn):
     assert rows["n"] == 1
 
 
+def test_insert_review_skip_notify_marks_notified_immediately(conn):
+    """Регрессия (2026-07-08, Даудель Спорт): backfill без skip_notify оставляет
+    notified_at=NULL, и main_notify.py потом рассылает карточку по каждому вставленному
+    отзыву одним пакетом при следующем плановом прогоне — 90 сообщений разом."""
+    normal = {"external_id": "n1", "author": None, "rating": 5, "text": "т", "date": None}
+    backfilled = {"external_id": "b1", "author": None, "rating": 5, "text": "т", "date": None}
+
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", normal)
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", backfilled, skip_notify=True)
+
+    conn.execute("UPDATE reviews SET sentiment='positive'")  # имитация main_analyze.py
+    conn.commit()
+
+    unnotified_ids = {r["external_review_id"] for r in db.get_unnotified_reviews(conn)}
+    assert unnotified_ids == {"n1"}  # backfilled уже помечен, main_notify.py его не тронет
+
+
 def test_alert_lifecycle_open_update_resolve(conn):
     db.create_alert(conn, "бассейн", "loc1", "yellow", 30, 3)
     alert = db.get_active_alert(conn, "бассейн", "loc1")

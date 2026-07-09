@@ -1,4 +1,13 @@
-"""Точка входа: проходит по client_config.yaml, собирает отзывы, пишет новые в БД."""
+"""Точка входа: проходит по client_config.yaml, собирает отзывы, пишет новые в БД.
+
+--backfill: помечает все вставленные отзывы как уже уведомлённые (notified_at) сразу
+здесь, а не оставляет это main_notify.py. Без флага первый же крупный импорт истории
+(первое подключение новой площадки/компании, или ручная доливка старых отзывов в БД)
+рассылает карточку по КАЖДОМУ отзыву при следующем прогоне main_notify.py — было
+проверено на практике (2026-07-08, Даудель Спорт: 90 отзывов долиты в БД без флага,
+ближайший плановый main_notify.py разослал все 90 одним пакетом)."""
+import sys
+
 from core.config import load_config
 from core.db import (
     get_connection,
@@ -18,6 +27,10 @@ COLLECTORS = {
 
 
 def main():
+    backfill = "--backfill" in sys.argv
+    if backfill:
+        print("[backfill] режим: новые отзывы будут сразу помечены как уведомлённые, main_notify.py их не разошлёт")
+
     cfg = load_config()
     conn = get_connection()
     init_db(conn)
@@ -53,7 +66,7 @@ def main():
             new_count = 0
             latest_id, latest_date = None, None
             for review in reviews:
-                if insert_review_if_new(conn, location_id, platform, review):
+                if insert_review_if_new(conn, location_id, platform, review, skip_notify=backfill):
                     new_count += 1
                 if latest_date is None or (review.get("date") and review["date"] > latest_date):
                     latest_id, latest_date = review["external_id"], review.get("date")
