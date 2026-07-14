@@ -542,3 +542,84 @@ def get_overdue_reviews_since(conn: sqlite3.Connection, location_id: str, since_
            AND reply_sla_deadline >= ? AND reply_sla_deadline < ?""",
         (location_id, since_iso, now_iso()),
     ).fetchall()
+
+
+# ============================================================================
+# Веб-дашборд (webapp/) — v1, только на данных, которые уже считаются выше
+# (см. PLAN.md "Дашборд клиента v1/v2" — что осталось в v2 и почему)
+# ============================================================================
+
+def get_platform_comparison_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[dict]:
+    """Объём и доля негатива по площадке за период — "куда направить усилия по
+    ответам" (см. PLAN.md, документ Perplexity — Platform Comparison). Фильтрация по
+    дате в Python, не в SQL — те же причины, что и в get_review_sentiment_counts_since
+    (разные форматы дат/смещений между площадками, ненадёжно сравнивать строками)."""
+    since_dt = parse_review_date(since_iso)
+    rows = conn.execute(
+        "SELECT platform, sentiment, review_date FROM reviews WHERE location_id=? AND review_date IS NOT NULL",
+        (location_id,),
+    ).fetchall()
+
+    stats: dict[str, dict[str, int]] = {}
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt < since_dt:
+            continue
+        platform = row["platform"]
+        stats.setdefault(platform, {"total": 0, "negative": 0})
+        stats[platform]["total"] += 1
+        if row["sentiment"] == "negative":
+            stats[platform]["negative"] += 1
+
+    result = []
+    for platform, s in stats.items():
+        negative_share = round(100 * s["negative"] / s["total"]) if s["total"] else 0
+        result.append({"platform": platform, "total": s["total"], "negative": s["negative"], "negative_share_pct": negative_share})
+    return sorted(result, key=lambda r: r["total"], reverse=True)
+
+
+def get_hidden_problems(conn: sqlite3.Connection, location_id: str, min_rating: int = 4, limit: int = 10) -> list[dict]:
+    """Отзывы с высокой оценкой (min_rating+ звёзд), но с негативным тегом внутри —
+    "Sentiment vs Rating mismatch" (см. PLAN.md). Aspect-based теги это уже хранят —
+    только запрос, без новой аналитики. Клиент ставит 5★ по привычке/вежливости, но
+    текст содержит реальную проблему, которую общая оценка полностью скрывает."""
+    rows = conn.execute(
+        """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date,
+                  GROUP_CONCAT(rt.tag, ', ') AS negative_tags
+           FROM reviews r
+           JOIN review_tags rt ON rt.review_id = r.id
+           WHERE r.location_id = ? AND r.rating >= ? AND rt.tag_sentiment = 'negative'
+           GROUP BY r.id
+           ORDER BY r.review_date DESC
+           LIMIT ?""",
+        (location_id, min_rating, limit),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reviews_paginated(
+    conn: sqlite3.Connection, location_id: str, platform: str | None = None,
+    sentiment: str | None = None, offset: int = 0, limit: int = 20,
+) -> tuple[list[dict], int]:
+    """Лента отзывов с фильтрами для вкладки "Лента отзывов" — возвращает (страница,
+    общее количество под фильтром) для пагинации на стороне webapp."""
+    where = ["location_id = ?"]
+    params: list = [location_id]
+    if platform:
+        where.append("platform = ?")
+        params.append(platform)
+    if sentiment:
+        where.append("sentiment = ?")
+        params.append(sentiment)
+    where_sql = " AND ".join(where)
+
+    total = conn.execute(f"SELECT COUNT(*) AS c FROM reviews WHERE {where_sql}", params).fetchone()["c"]
+    rows = conn.execute(
+        f"""SELECT * FROM reviews WHERE {where_sql}
+            ORDER BY review_date DESC LIMIT ? OFFSET ?""",
+        (*params, limit, offset),
+    ).fetchall()
+    return [dict(row) for row in rows], total

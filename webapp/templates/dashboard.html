@@ -1,0 +1,249 @@
+{% extends "dashboard_base.html" %}
+{% block title %}{{ display_name }} — Обзор{% endblock %}
+{% set active_tab = 'overview' %}
+{% block dashboard_content %}
+<style>
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .summary-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .summary-card .num { font-size: 28px; font-weight: 800; line-height: 1; }
+  .summary-card .label { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+  .summary-card.red .num { color: var(--danger); }
+  .summary-card.yellow .num { color: #e0b84c; }
+  .summary-card.neutral .num { color: var(--accent-2); }
+
+  .section { margin-bottom: 36px; }
+  .section h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 14px;
+  }
+
+  .sentiment-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .sentiment-bar { flex: 1; height: 10px; border-radius: 6px; overflow: hidden; display: flex; background: rgba(255,255,255,0.05); }
+  .sentiment-bar .seg.positive { background: var(--accent); }
+  .sentiment-bar .seg.neutral { background: #e0b84c; }
+  .sentiment-bar .seg.negative { background: var(--danger); }
+  .sentiment-legend { display: flex; gap: 16px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+
+  .alert-list, .offender-list, .overdue-list, .hidden-list { display: flex; flex-direction: column; gap: 8px; }
+  .alert-item, .offender-item, .overdue-item, .hidden-item {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+  }
+  .alert-item .tag, .offender-item .author { font-weight: 700; }
+  .alert-item .meta, .offender-item .meta, .overdue-item .meta { color: var(--text-dim); margin-left: auto; font-size: 13px; }
+  .severity-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .severity-dot.red { background: var(--danger); }
+  .severity-dot.yellow { background: #e0b84c; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+  .tag-rank { display: flex; flex-direction: column; gap: 8px; }
+  .tag-rank-item {
+    display: flex;
+    justify-content: space-between;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  .tag-rank-item .count { color: var(--text-dim); }
+
+  table.platform-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.platform-table th {
+    text-align: left;
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.platform-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hidden-item .stars { color: #e0b84c; white-space: nowrap; }
+  .hidden-item .text { color: var(--text-dim); font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hidden-item .tags { color: var(--danger); font-size: 13px; white-space: nowrap; }
+
+  .empty-note { color: var(--text-dim); font-size: 14px; padding: 12px 0; }
+</style>
+
+<div class="summary-row">
+  <div class="summary-card red"><div class="num">{{ red_count }}</div><div class="label">Красных алертов</div></div>
+  <div class="summary-card yellow"><div class="num">{{ yellow_count }}</div><div class="label">Жёлтых алертов</div></div>
+  <div class="summary-card neutral"><div class="num">{{ overdue_recent|length }}</div><div class="label">Просрочено по SLA</div></div>
+  <div class="summary-card neutral"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></div>
+</div>
+
+<div class="section">
+  <h2>Отзывы за 30 дней</h2>
+  {% set pos = sentiment_counts.get('positive', 0) %}
+  {% set neu = sentiment_counts.get('neutral', 0) %}
+  {% set neg = sentiment_counts.get('negative', 0) %}
+  {% set total = pos + neu + neg %}
+  <div class="sentiment-bar-wrap">
+    {% if total > 0 %}
+    <div class="sentiment-bar">
+      <div class="seg positive" style="width: {{ (pos / total * 100)|round }}%"></div>
+      <div class="seg neutral" style="width: {{ (neu / total * 100)|round }}%"></div>
+      <div class="seg negative" style="width: {{ (neg / total * 100)|round }}%"></div>
+    </div>
+    <div class="sentiment-legend">
+      <span>🟢 {{ pos }}</span><span>🟡 {{ neu }}</span><span>🔴 {{ neg }}</span>
+    </div>
+    {% else %}
+    <div class="empty-note">Отзывов за этот период не найдено.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="section">
+  <h2>Открытые алерты</h2>
+  {% if tag_alerts %}
+  <div class="alert-list">
+    {% for a in tag_alerts %}
+    <div class="alert-item">
+      <span class="severity-dot {{ a.severity }}"></span>
+      <span class="tag">{{ a.tag }}</span>
+      <span class="meta">{{ a.count_in_window }} за {{ a.window_matched }} дн.{% if a.status == 'acknowledged' %} · в работе{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Открытых алертов нет.</div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h2>Повторные негативщики</h2>
+  {% if repeat_offender_alerts %}
+  <div class="offender-list">
+    {% for a in repeat_offender_alerts %}
+    <div class="offender-item">
+      <span class="severity-dot yellow"></span>
+      <span class="author">{{ a.author }}</span>
+      <span class="meta">{{ platform_labels.get(a.platform, a.platform) if platform_labels else a.platform }} · {{ a.count_in_window }} негативных отзывов</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Повторяющихся жалобщиков не найдено.</div>
+  {% endif %}
+</div>
+
+<div class="two-col section">
+  <div>
+    <h2>Что хвалят</h2>
+    {% if top_praised %}
+    <div class="tag-rank">
+      {% for t in top_praised %}
+      <div class="tag-rank-item"><span>{{ t.tag }}</span><span class="count">{{ t.count }}</span></div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-note">Недостаточно данных.</div>
+    {% endif %}
+  </div>
+  <div>
+    <h2>Что ругают</h2>
+    {% if top_criticized %}
+    <div class="tag-rank">
+      {% for t in top_criticized %}
+      <div class="tag-rank-item"><span>{{ t.tag }}</span><span class="count">{{ t.count }}</span></div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-note">Недостаточно данных.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="section">
+  <h2>Сравнение площадок</h2>
+  {% if platform_comparison %}
+  <table class="platform-table">
+    <tr><th>Площадка</th><th>Отзывов</th><th>Негатив</th></tr>
+    {% for p in platform_comparison %}
+    <tr>
+      <td>{{ platform_labels.get(p.platform, p.platform) if platform_labels else p.platform }}</td>
+      <td>{{ p.total }}</td>
+      <td>{{ p.negative }} ({{ p.negative_share_pct }}%)</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <div class="empty-note">Нет данных за период.</div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h2>Скрытые проблемы <span style="color:var(--text-dim); font-weight:400; font-size:13px;">— высокая оценка, но есть жалоба в тексте</span></h2>
+  {% if hidden_problems %}
+  <div class="hidden-list">
+    {% for h in hidden_problems %}
+    <div class="hidden-item">
+      <span class="stars">{{ '★' * h.rating }}{{ '☆' * (5 - h.rating) }}</span>
+      <span class="text">{{ h.text }}</span>
+      <span class="tags">{{ h.negative_tags }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Не найдено.</div>
+  {% endif %}
+</div>
+
+{% if overdue_recent or overdue_stale %}
+<div class="section">
+  <h2>Просрочки по SLA</h2>
+  <div class="overdue-list">
+    {% for r in overdue_recent %}
+    <div class="overdue-item">
+      <span class="severity-dot red"></span>
+      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span class="meta">дедлайн {{ r.reply_sla_deadline[:10] }}</span>
+    </div>
+    {% endfor %}
+    {% for r in overdue_stale %}
+    <div class="overdue-item" style="opacity: 0.6;">
+      <span class="severity-dot yellow"></span>
+      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span class="meta">забыто, дедлайн {{ r.reply_sla_deadline[:10] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

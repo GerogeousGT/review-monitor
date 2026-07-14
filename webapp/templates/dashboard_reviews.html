@@ -1,0 +1,132 @@
+{% extends "dashboard_base.html" %}
+{% block title %}{{ display_name }} — Лента отзывов{% endblock %}
+{% set active_tab = 'reviews' %}
+{% block dashboard_content %}
+<style>
+  .filters {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .filters select {
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 14px;
+  }
+  .filters button {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #0c1119;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .review-list { display: flex; flex-direction: column; gap: 12px; }
+  .review-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .review-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .review-head .stars { color: #e0b84c; }
+  .review-head .platform { font-weight: 600; color: var(--text); }
+  .review-text { font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+  .review-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .review-tag {
+    font-size: 12px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+  }
+  .review-tag.positive { color: var(--accent); border-color: rgba(94,234,168,0.3); }
+  .review-tag.negative { color: var(--danger); border-color: rgba(234,94,110,0.3); }
+
+  .pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 28px;
+    font-size: 14px;
+  }
+  .pagination a, .pagination span {
+    padding: 6px 12px;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-dim);
+  }
+  .pagination a:hover { color: var(--text); background: var(--surface-2); }
+  .pagination .current { color: var(--text); font-weight: 700; }
+
+  .empty-note { color: var(--text-dim); font-size: 14px; padding: 40px 0; text-align: center; }
+</style>
+
+<form class="filters" method="GET">
+  <select name="platform">
+    <option value="">Все площадки</option>
+    {% for key, label in platform_labels.items() %}
+    <option value="{{ key }}" {% if platform_filter == key %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select name="sentiment">
+    <option value="">Любая тональность</option>
+    <option value="positive" {% if sentiment_filter == 'positive' %}selected{% endif %}>🟢 Позитив</option>
+    <option value="neutral" {% if sentiment_filter == 'neutral' %}selected{% endif %}>🟡 Нейтрально</option>
+    <option value="negative" {% if sentiment_filter == 'negative' %}selected{% endif %}>🔴 Негатив</option>
+  </select>
+  <button type="submit">Применить</button>
+</form>
+
+{% if reviews %}
+<div class="review-list">
+  {% for r in reviews %}
+  <div class="review-card">
+    <div class="review-head">
+      <span class="stars">{{ '★' * (r.rating or 0) }}{{ '☆' * (5 - (r.rating or 0)) }}</span>
+      <span class="platform">{{ r.platform_label }}</span>
+      <span>{{ r.author or 'без имени' }}</span>
+      <span>&middot;</span>
+      <span>{{ r.review_date[:10] if r.review_date else '' }}</span>
+      <span>&middot;</span>
+      <span>{{ {'positive': '🟢', 'neutral': '🟡', 'negative': '🔴'}.get(r.sentiment, '') }} {{ r.sentiment or '' }}</span>
+    </div>
+    <div class="review-text">{{ r.text or '(без текста)' }}</div>
+    {% if r.tags %}
+    <div class="review-tags">
+      {% for t in r.tags %}
+      <span class="review-tag {{ t.tag_sentiment }}">{{ t.tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="{{ url_for('dashboard_reviews', slug=slug, platform=platform_filter, sentiment=sentiment_filter, page=page-1) }}">&larr; Назад</a>
+  {% endif %}
+  <span class="current">{{ page }} из {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="{{ url_for('dashboard_reviews', slug=slug, platform=platform_filter, sentiment=sentiment_filter, page=page+1) }}">Вперёд &rarr;</a>
+  {% endif %}
+</div>
+{% else %}
+<div class="empty-note">Отзывов под этот фильтр не найдено.</div>
+{% endif %}
+{% endblock %}

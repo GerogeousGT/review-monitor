@@ -217,3 +217,85 @@ def test_overdue_reviews_since_window(conn):
 
     assert in_window in ids
     assert out_of_window not in ids
+
+
+def test_platform_comparison_since_splits_by_platform_and_computes_negative_share(conn):
+    now = datetime.now(timezone.utc)
+
+    def _review(external_id, platform, sentiment, days_old=1):
+        r = {"external_id": external_id, "author": None, "rating": 3, "text": "т",
+             "date": (now - timedelta(days=days_old)).isoformat()}
+        db.insert_review_if_new(conn, "loc1", platform, r)
+        rid = conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+        conn.execute("UPDATE reviews SET sentiment=? WHERE id=?", (sentiment, rid))
+        conn.commit()
+
+    _review("p1", "2gis", "negative")
+    _review("p2", "2gis", "positive")
+    _review("p3", "yandex_maps", "positive")
+    _review("p4", "2gis", "positive", days_old=60)  # вне периода — не в счёт
+
+    since = (now - timedelta(days=7)).isoformat()
+    result = db.get_platform_comparison_since(conn, "loc1", since)
+    by_platform = {r["platform"]: r for r in result}
+
+    assert by_platform["2gis"]["total"] == 2
+    assert by_platform["2gis"]["negative"] == 1
+    assert by_platform["2gis"]["negative_share_pct"] == 50
+    assert by_platform["yandex_maps"]["total"] == 1
+    assert by_platform["yandex_maps"]["negative_share_pct"] == 0
+
+
+def test_hidden_problems_finds_high_rating_with_negative_tag(conn):
+    """Sentiment vs Rating mismatch — 5★ отзыв с негативным тегом внутри не должен
+    потеряться за общей высокой оценкой (см. PLAN.md, блок "Скрытые проблемы")."""
+    now = datetime.now(timezone.utc)
+
+    high_with_hidden_issue = {"external_id": "h1", "author": "Аня", "rating": 5, "text": "Отлично, но бассейн грязный",
+                               "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", high_with_hidden_issue)
+    hid = conn.execute("SELECT id FROM reviews WHERE external_review_id='h1'").fetchone()["id"]
+    db.insert_review_tag(conn, hid, "чистота", "negative", "бассейн грязный")
+    db.insert_review_tag(conn, hid, "тренеры", "positive", "отлично")
+
+    high_clean = {"external_id": "h2", "author": "Боря", "rating": 5, "text": "Всё супер", "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", high_clean)
+    hid2 = conn.execute("SELECT id FROM reviews WHERE external_review_id='h2'").fetchone()["id"]
+    db.insert_review_tag(conn, hid2, "тренеры", "positive", "супер")  # нет негативных тегов — не должен попасть
+
+    low_rating_negative = {"external_id": "h3", "author": "Вера", "rating": 2, "text": "Плохо", "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", low_rating_negative)
+    hid3 = conn.execute("SELECT id FROM reviews WHERE external_review_id='h3'").fetchone()["id"]
+    db.insert_review_tag(conn, hid3, "цена", "negative", "дорого")  # низкий рейтинг — это не "скрытая" проблема
+
+    result = db.get_hidden_problems(conn, "loc1", min_rating=4)
+    ids = {r["id"] for r in result}
+
+    assert ids == {hid}
+
+
+def test_reviews_paginated_filters_and_counts_total(conn):
+    now = datetime.now(timezone.utc)
+
+    def _review(external_id, platform, sentiment):
+        r = {"external_id": external_id, "author": None, "rating": 3, "text": "т", "date": now.isoformat()}
+        db.insert_review_if_new(conn, "loc1", platform, r)
+        rid = conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+        conn.execute("UPDATE reviews SET sentiment=? WHERE id=?", (sentiment, rid))
+        conn.commit()
+
+    _review("r1", "2gis", "negative")
+    _review("r2", "2gis", "positive")
+    _review("r3", "yandex_maps", "negative")
+
+    page, total = db.get_reviews_paginated(conn, "loc1", platform="2gis")
+    assert total == 2
+    assert {r["external_review_id"] for r in page} == {"r1", "r2"}
+
+    page, total = db.get_reviews_paginated(conn, "loc1", sentiment="negative")
+    assert total == 2
+    assert {r["external_review_id"] for r in page} == {"r1", "r3"}
+
+    page, total = db.get_reviews_paginated(conn, "loc1", limit=1, offset=1)
+    assert total == 3
+    assert len(page) == 1
