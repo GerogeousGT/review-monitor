@@ -90,6 +90,23 @@ def compute_tag_severity(events: list[dict], tag: str, alert_rules_cfg: dict, no
     return chronic if _SEVERITY_RANK[chronic["severity"]] > _SEVERITY_RANK[burst["severity"]] else burst
 
 
+def compute_repeat_offenders(events: list[dict], min_negative_count: int, window_days: int, now: datetime) -> dict[tuple[str, str, str], int]:
+    """events — get_negative_review_events_by_author (одна строка на отзыв, не на
+    тег). Группировка СТРОГО по (author, platform, location_id) — то же имя на
+    разных площадках не гарантированно один человек, площадки не смешиваем.
+    Единый порог (не yellow/red ступени, как у тег-алертов) — совпадений либо
+    достаточно для сигнала, либо нет."""
+    cutoff = now - timedelta(days=window_days)
+    by_key: dict[tuple[str, str, str], set[int]] = {}
+    for e in events:
+        if _parse_date(e["review_date"]) < cutoff:
+            continue
+        key = (e["author"], e["platform"], e["location_id"])
+        by_key.setdefault(key, set()).add(e["review_id"])
+
+    return {key: len(review_ids) for key, review_ids in by_key.items() if len(review_ids) >= min_negative_count}
+
+
 def recompute_all(conn, cfg, db) -> list[dict]:
     """Проходит по всем (тег, точка), где были негативные упоминания, пересчитывает
     severity и обновляет/создаёт/закрывает алерты. Возвращает список изменений для лога."""
@@ -118,5 +135,43 @@ def recompute_all(conn, cfg, db) -> list[dict]:
         elif existing["severity"] != result["severity"] or existing["count_in_window"] != result["count_in_window"]:
             db.update_alert_severity(conn, existing["id"], result["severity"], result["window_matched"], result["count_in_window"])
             changes.append({"tag": tag, "location_id": location_id, "action": "updated", "previous_severity": existing["severity"], **result})
+
+    return changes
+
+
+def recompute_repeat_offenders(conn, cfg, db) -> list[dict]:
+    """Аналог recompute_all, но для repeat offender: единый порог (не yellow/red),
+    ключ (author, platform, location_id) вместо (tag, location_id). Авто-resolve —
+    когда окно "утекло" мимо старых жалоб этого автора и count упал ниже порога
+    (тот же принцип, что у тег-алертов при возврате к норме)."""
+    rules = (cfg["alert_rules"].get("repeat_offender") or {})
+    if not rules:
+        return []
+
+    now = datetime.now(timezone.utc)
+    events = db.get_negative_review_events_by_author(conn)
+    counts = compute_repeat_offenders(events, rules["min_negative_count"], rules["window_days"], now)
+
+    changes = []
+    # Все авторы, у кого сейчас открыт алерт — нужно проверить и тех, кто выпал из counts (авто-resolve)
+    active = {(a["tag"], a["location_id"]): a for a in db.get_all_active_repeat_offender_alerts(conn)}
+    seen_keys = set()
+
+    for (author, platform, location_id), count in counts.items():
+        key_str = db.repeat_offender_key(author, platform)
+        seen_keys.add((key_str, location_id))
+        existing = active.get((key_str, location_id))
+
+        if existing is None:
+            alert_id = db.create_repeat_offender_alert(conn, author, platform, location_id, "yellow", rules["window_days"], count)
+            changes.append({"author": author, "platform": platform, "location_id": location_id, "action": "opened", "count_in_window": count, "alert_id": alert_id})
+        elif existing["count_in_window"] != count:
+            db.update_alert_severity(conn, existing["id"], "yellow", rules["window_days"], count)
+            changes.append({"author": author, "platform": platform, "location_id": location_id, "action": "updated", "count_in_window": count, "alert_id": existing["id"]})
+
+    for (key_str, location_id), alert in active.items():
+        if (key_str, location_id) not in seen_keys:
+            db.resolve_alert(conn, alert["id"])
+            changes.append({"author": alert["tag"], "location_id": location_id, "action": "resolved_auto", "alert_id": alert["id"]})
 
     return changes

@@ -55,6 +55,19 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "internal_note" not in review_columns:
         conn.execute("ALTER TABLE reviews ADD COLUMN internal_note TEXT")
 
+    alert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
+    if "alert_type" not in alert_columns:
+        # 'tag' — старые/обычные тег-алерты (дефолт, обратная совместимость).
+        # 'repeat_offender' — новый тип, см. get_active_repeat_offender_alert. Ключ
+        # автора хранится в существующей колонке tag как "author:{author}:{platform}",
+        # чтобы не переименовывать tag/location_id и не задевать весь текущий CRUD.
+        conn.execute("ALTER TABLE alerts ADD COLUMN alert_type TEXT DEFAULT 'tag'")
+    if "notify_count" not in alert_columns:
+        # Сколько раз уже отправлено напоминание — пока нет inline-кнопки "Связался"
+        # (см. PLAN.md), repeat offender останавливается сам после N напоминаний,
+        # а не ждёт acknowledge вручную через CLI, который недоступен сервисной службе клиента.
+        conn.execute("ALTER TABLE alerts ADD COLUMN notify_count INTEGER DEFAULT 0")
+
     conn.commit()
 
 
@@ -238,6 +251,24 @@ def get_negative_tag_events(conn: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+_ANONYMOUS_AUTHOR_NAMES = {"anonymous review", "аноним", "анонимный отзыв"}
+
+
+def get_negative_review_events_by_author(conn: sqlite3.Connection) -> list[dict]:
+    """Одна строка на негативный ОТЗЫВ (не тег внутри него) с известным автором —
+    основа для repeat offender. author+platform — намеренно НЕ по всей БД сразу:
+    одинаковое имя на разных площадках не гарантированно один человек (см. PLAN.md).
+    Площадки иногда отдают литерал вместо реального имени (например "Anonymous
+    review" на Яндекс.Картах) — разные люди попали бы под один ключ, исключаем явно."""
+    rows = conn.execute(
+        """SELECT location_id, platform, author, id AS review_id, review_date
+           FROM reviews
+           WHERE sentiment = 'negative' AND author IS NOT NULL AND author != ''"""
+    ).fetchall()
+    rows = [r for r in rows if r["author"].strip().lower() not in _ANONYMOUS_AUTHOR_NAMES]
+    return [dict(row) for row in rows]
+
+
 def get_reviews_needing_reply(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         "SELECT * FROM reviews WHERE reply_status='pending' AND reply_draft IS NULL AND sentiment IS NOT NULL"
@@ -375,6 +406,68 @@ def acknowledge_alert(conn: sqlite3.Connection, alert_id: int, acknowledged_by: 
     conn.execute(
         "UPDATE alerts SET status='acknowledged', acknowledged_by=?, acknowledged_at=? WHERE id=?",
         (acknowledged_by, now_iso(), alert_id),
+    )
+    conn.commit()
+
+
+# ----------------------------------------------------------------------------
+# Repeat offender — тот же CRUD выше (create_alert/update_alert_severity/
+# acknowledge_alert/resolve_alert) работает по alert.id и не зависит от типа,
+# переиспользуется без изменений. Ключ "автор+площадка" хранится в колонке tag
+# как "author:{author}:{platform}" (см. _migrate) — отдельные хелперы ниже только
+# для построения/поиска по этому ключу и для повторных напоминаний.
+# ----------------------------------------------------------------------------
+
+def repeat_offender_key(author: str, platform: str) -> str:
+    return f"author:{author}:{platform}"
+
+
+def get_active_repeat_offender_alert(conn: sqlite3.Connection, author: str, platform: str, location_id: str) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT * FROM alerts WHERE tag=? AND location_id=? AND alert_type='repeat_offender' AND status != 'resolved'",
+        (repeat_offender_key(author, platform), location_id),
+    ).fetchone()
+
+
+def create_repeat_offender_alert(
+    conn: sqlite3.Connection, author: str, platform: str, location_id: str, severity: str, window_matched: int, count_in_window: int
+) -> int:
+    cur = conn.execute(
+        """INSERT INTO alerts (tag, location_id, severity, window_matched, count_in_window, first_triggered_at, status, alert_type)
+           VALUES (?, ?, ?, ?, ?, ?, 'open', 'repeat_offender')""",
+        (repeat_offender_key(author, platform), location_id, severity, window_matched, count_in_window, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_all_active_repeat_offender_alerts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM alerts WHERE alert_type='repeat_offender' AND status != 'resolved' ORDER BY first_triggered_at"
+    ).fetchall()
+
+
+def get_repeat_offender_alerts_due_for_renotify(conn: sqlite3.Connection, renotify_after_days: int, max_notify_count: int) -> list[sqlite3.Row]:
+    """Открытые (НЕ acknowledged — человек уже взял в работу, повторно не дёргаем)
+    repeat-offender алерты, которым пора напомнить снова: либо ни разу не уведомляли
+    после создания, либо последнее уведомление было раньше порога. Останавливается
+    после max_notify_count отправок — нет кнопки "Связался" для сервисной службы
+    клиента (см. PLAN.md), бесконечно напоминать без возможности подтвердить контакт
+    было бы просто спамом."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=renotify_after_days)).isoformat()
+    return conn.execute(
+        """SELECT * FROM alerts
+           WHERE alert_type='repeat_offender' AND status='open'
+           AND notify_count < ?
+           AND (last_notified_at IS NULL OR last_notified_at < ?)""",
+        (max_notify_count, cutoff),
+    ).fetchall()
+
+
+def mark_alert_notified(conn: sqlite3.Connection, alert_id: int) -> None:
+    conn.execute(
+        "UPDATE alerts SET last_notified_at=?, notify_count=notify_count+1 WHERE id=?",
+        (now_iso(), alert_id),
     )
     conn.commit()
 

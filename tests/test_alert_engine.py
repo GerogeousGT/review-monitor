@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from agents.alert_engine import (
     compute_burst_severity,
     compute_chronic_severity,
+    compute_repeat_offenders,
     compute_tag_severity,
 )
 
@@ -73,3 +74,36 @@ def test_tag_severity_takes_worse_of_burst_and_chronic():
     events = _events(6, days_ago=150)  # видны в 90-дневном окне? нет — только в 180
     result = compute_tag_severity(events, "услуги", cfg, NOW)
     assert result["severity"] == "yellow"
+
+
+def _offender_events(author: str, platform: str, location_id: str, n: int, days_ago: int = 0) -> list[dict]:
+    date = (NOW - timedelta(days=days_ago)).isoformat()
+    return [{"author": author, "platform": platform, "location_id": location_id, "review_id": 2000 + i, "review_date": date} for i in range(n)]
+
+
+def test_repeat_offender_below_threshold_not_flagged():
+    events = _offender_events("Антон Бородин", "2gis", "loc1", 2)
+    result = compute_repeat_offenders(events, min_negative_count=3, window_days=60, now=NOW)
+    assert result == {}
+
+
+def test_repeat_offender_at_threshold_flagged():
+    events = _offender_events("Антон Бородин", "2gis", "loc1", 3)
+    result = compute_repeat_offenders(events, min_negative_count=3, window_days=60, now=NOW)
+    assert result[("Антон Бородин", "2gis", "loc1")] == 3
+
+
+def test_repeat_offender_does_not_mix_platforms():
+    """Тот же автор с 3 негативами на 2ГИС и 3 на Яндекс.Картах — два РАЗНЫХ ключа,
+    не 6 объединённых (одинаковое имя на разных площадках — не факт один человек)."""
+    events = _offender_events("Антон Бородин", "2gis", "loc1", 3) + _offender_events("Антон Бородин", "yandex_maps", "loc1", 3)
+    result = compute_repeat_offenders(events, min_negative_count=3, window_days=60, now=NOW)
+    assert len(result) == 2
+    assert result[("Антон Бородин", "2gis", "loc1")] == 3
+    assert result[("Антон Бородин", "yandex_maps", "loc1")] == 3
+
+
+def test_repeat_offender_outside_window_excluded():
+    events = _offender_events("Антон Бородин", "2gis", "loc1", 3, days_ago=90)
+    result = compute_repeat_offenders(events, min_negative_count=3, window_days=60, now=NOW)
+    assert result == {}

@@ -205,6 +205,15 @@ alert_rules:
     - {window_days: 360, threshold: 9}
     - {window_days: 720, threshold: 14}
 
+  # "Повторный негативщик" — см. подробный комментарий в clients/worldclass/client_config.yaml.
+  # Значения унаследованы без калибровки на реальных данных Даудель Спорт (как и весь
+  # блок "ДВИЖОК" выше) — пересмотреть вместе с остальными порогами.
+  repeat_offender:
+    min_negative_count: 3
+    window_days: 60
+    renotify_after_days: 2
+    max_notifications: 3
+
 reply_sla_hours:
   negative: 24
   neutral: 72

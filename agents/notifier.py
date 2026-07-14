@@ -23,17 +23,59 @@ def _esc(s) -> str:
     return html_lib.escape(str(s or ""))
 
 
-def send_message(text: str) -> None:
+def send_message(text: str, reply_markup: dict | None = None) -> None:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
     url = API_BASE.format(token=token, method="sendMessage")
-    resp = requests.post(
-        url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=15
-    )
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    resp = requests.post(url, json=payload, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     if not data.get("ok"):
         raise RuntimeError(f"Telegram API вернул ошибку: {data}")
+
+
+def repeat_offender_ack_keyboard(alert_id: int) -> dict:
+    """callback_data несёт alert_id напрямую — не нужен отдельный маппинг
+    сообщение->алерт, main_repeat_offender_poll.py читает его прямо из callback_query."""
+    return {"inline_keyboard": [[{"text": "✅ Связался с клиентом", "callback_data": f"ro_ack:{alert_id}"}]]}
+
+
+def get_updates(offset: int | None, timeout: int = 0) -> list[dict]:
+    """Long-poll заменяется коротким запросом (timeout=0 по умолчанию) — скрипт сам
+    запускается периодически через systemd timer, не держит соединение открытым
+    постоянно (это одноразовый батч-скрипт, не долгоживущий процесс, см. PLAN.md)."""
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = API_BASE.format(token=token, method="getUpdates")
+    params = {"timeout": timeout, "allowed_updates": ["callback_query"]}
+    if offset is not None:
+        params["offset"] = offset
+    resp = requests.get(url, params=params, timeout=timeout + 15)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram API вернул ошибку: {data}")
+    return data["result"]
+
+
+def answer_callback_query(callback_query_id: str, text: str) -> None:
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = API_BASE.format(token=token, method="answerCallbackQuery")
+    resp = requests.post(url, json={"callback_query_id": callback_query_id, "text": text}, timeout=15)
+    resp.raise_for_status()
+
+
+def remove_message_keyboard(chat_id: int, message_id: int) -> None:
+    """Убирает кнопку после нажатия — иначе кто-то может нажать её ещё раз на
+    уже подтверждённом алерте (визуально сообщение остаётся, просто без кнопки)."""
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    url = API_BASE.format(token=token, method="editMessageReplyMarkup")
+    resp = requests.post(
+        url, json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}}, timeout=15
+    )
+    resp.raise_for_status()
 
 
 def format_review_message(review: dict, tags: list[dict], location_name: str) -> str:
@@ -85,6 +127,26 @@ def format_alert_message(change: dict, location_name: str) -> str:
 
 def format_resolved_message(change: dict, location_name: str) -> str:
     return f"🟢 Алерт закрыт — <b>{_esc(location_name)}</b>\nТема: <b>{_esc(change['tag'])}</b> — счёт вернулся в норму."
+
+
+def format_repeat_offender_message(alert: dict, location_name: str, is_last: bool = False) -> str:
+    """alert.tag хранит ключ "author:{author}:{platform}" (см. core/db.py) — здесь
+    разбирается обратно для читаемого сообщения. Нет кнопки подтверждения (см.
+    PLAN.md — нужен webhook, пока не сделан) — сообщение только информирует,
+    is_last явно предупреждает, что дальше система замолчит сама."""
+    _, author, platform = alert["tag"].split(":", 2)
+    platform_label = PLATFORM_LABEL.get(platform, platform)
+    footer = (
+        "Это последнее автоматическое напоминание по этому клиенту — дальше отслеживайте вручную."
+        if is_last
+        else "Напоминание придёт снова через пару дней, если проблема не будет решена."
+    )
+    return (
+        f"🟠 Повторный негатив от одного клиента — <b>{_esc(location_name)}</b>\n"
+        f"<b>{_esc(author)}</b> ({platform_label}) — {alert['count_in_window']} негативных отзывов "
+        f"за {alert['window_matched']} дн.\n\n"
+        f"Пожалуйста, свяжитесь с клиентом.\n{footer}"
+    )
 
 
 def format_digest_message(location_name: str, sentiment_counts: dict, active_alerts: list[dict], overdue_count: int) -> str:
