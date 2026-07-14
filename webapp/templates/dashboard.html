@@ -15,13 +15,6 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 18px 20px;
-    text-decoration: none;
-    color: inherit;
-    transition: border-color 0.15s, transform 0.1s;
-  }
-  .summary-card.clickable:hover {
-    border-color: var(--accent-2);
-    transform: translateY(-1px);
   }
   .summary-card .num { font-size: 28px; font-weight: 800; line-height: 1; }
   .summary-card .label { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
@@ -180,10 +173,10 @@
 </style>
 
 <div class="summary-row">
-  <a class="summary-card red clickable" href="#alerts"><div class="num">{{ red_count }}</div><div class="label">Красных алертов</div></a>
-  <a class="summary-card yellow clickable" href="#alerts"><div class="num">{{ yellow_count }}</div><div class="label">Жёлтых алертов</div></a>
-  <a class="summary-card neutral clickable" href="#overdue"><div class="num">{{ overdue_recent|length }}</div><div class="label">Просрочено по SLA</div></a>
-  <a class="summary-card neutral clickable" href="#offenders"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></a>
+  <div class="summary-card red"><div class="num">{{ red_count }}</div><div class="label">Красных алертов</div></div>
+  <div class="summary-card yellow"><div class="num">{{ yellow_count }}</div><div class="label">Жёлтых алертов</div></div>
+  <div class="summary-card neutral"><div class="num">{{ overdue_recent|length }}</div><div class="label">Просрочено по SLA</div></div>
+  <div class="summary-card neutral"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></div>
 </div>
 
 <div class="section">
@@ -222,6 +215,30 @@
   </div>
   {% else %}
   <div class="empty-note">Открытых алертов нет.</div>
+  {% endif %}
+</div>
+
+<div class="section" id="overdue">
+  <h2>Просрочки по SLA</h2>
+  {% if overdue_recent or overdue_stale %}
+  <div class="overdue-list">
+    {% for r in overdue_recent %}
+    <div class="overdue-item">
+      <span class="severity-dot red"></span>
+      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span class="meta">дедлайн {{ r.reply_sla_deadline[:10] }}</span>
+    </div>
+    {% endfor %}
+    {% for r in overdue_stale %}
+    <div class="overdue-item" style="opacity: 0.6;">
+      <span class="severity-dot yellow"></span>
+      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span class="meta">забыто, дедлайн {{ r.reply_sla_deadline[:10] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Просрочек нет.</div>
   {% endif %}
 </div>
 
@@ -301,30 +318,6 @@
   </div>
   {% else %}
   <div class="empty-note">Не найдено.</div>
-  {% endif %}
-</div>
-
-<div class="section" id="overdue">
-  <h2>Просрочки по SLA</h2>
-  {% if overdue_recent or overdue_stale %}
-  <div class="overdue-list">
-    {% for r in overdue_recent %}
-    <div class="overdue-item">
-      <span class="severity-dot red"></span>
-      <span>{{ r.platform }}, {{ r.sentiment }}</span>
-      <span class="meta">дедлайн {{ r.reply_sla_deadline[:10] }}</span>
-    </div>
-    {% endfor %}
-    {% for r in overdue_stale %}
-    <div class="overdue-item" style="opacity: 0.6;">
-      <span class="severity-dot yellow"></span>
-      <span>{{ r.platform }}, {{ r.sentiment }}</span>
-      <span class="meta">забыто, дедлайн {{ r.reply_sla_deadline[:10] }}</span>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty-note">Просрочек нет.</div>
   {% endif %}
 </div>
 
