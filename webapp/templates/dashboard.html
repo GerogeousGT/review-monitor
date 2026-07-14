@@ -10,10 +10,18 @@
     margin-bottom: 32px;
   }
   .summary-card {
+    display: block;
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 18px 20px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, transform 0.1s;
+  }
+  .summary-card.clickable:hover {
+    border-color: var(--accent-2);
+    transform: translateY(-1px);
   }
   .summary-card .num { font-size: 28px; font-weight: 800; line-height: 1; }
   .summary-card .label { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
@@ -21,7 +29,7 @@
   .summary-card.yellow .num { color: #e0b84c; }
   .summary-card.neutral .num { color: var(--accent-2); }
 
-  .section { margin-bottom: 36px; }
+  .section { margin-bottom: 36px; scroll-margin-top: 20px; }
   .section h2 {
     font-size: 15px;
     font-weight: 700;
@@ -101,10 +109,10 @@
 </style>
 
 <div class="summary-row">
-  <div class="summary-card red"><div class="num">{{ red_count }}</div><div class="label">Красных алертов</div></div>
-  <div class="summary-card yellow"><div class="num">{{ yellow_count }}</div><div class="label">Жёлтых алертов</div></div>
-  <div class="summary-card neutral"><div class="num">{{ overdue_recent|length }}</div><div class="label">Просрочено по SLA</div></div>
-  <div class="summary-card neutral"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></div>
+  <a class="summary-card red clickable" href="#alerts"><div class="num">{{ red_count }}</div><div class="label">Красных алертов</div></a>
+  <a class="summary-card yellow clickable" href="#alerts"><div class="num">{{ yellow_count }}</div><div class="label">Жёлтых алертов</div></a>
+  <a class="summary-card neutral clickable" href="#overdue"><div class="num">{{ overdue_recent|length }}</div><div class="label">Просрочено по SLA</div></a>
+  <a class="summary-card neutral clickable" href="#offenders"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></a>
 </div>
 
 <div class="section">
@@ -129,7 +137,7 @@
   </div>
 </div>
 
-<div class="section">
+<div class="section" id="alerts">
   <h2>Открытые алерты</h2>
   {% if tag_alerts %}
   <div class="alert-list">
@@ -146,7 +154,7 @@
   {% endif %}
 </div>
 
-<div class="section">
+<div class="section" id="offenders">
   <h2>Повторные негативщики</h2>
   {% if repeat_offender_alerts %}
   <div class="offender-list">
@@ -225,9 +233,9 @@
   {% endif %}
 </div>
 
-{% if overdue_recent or overdue_stale %}
-<div class="section">
+<div class="section" id="overdue">
   <h2>Просрочки по SLA</h2>
+  {% if overdue_recent or overdue_stale %}
   <div class="overdue-list">
     {% for r in overdue_recent %}
     <div class="overdue-item">
@@ -244,6 +252,8 @@
     </div>
     {% endfor %}
   </div>
+  {% else %}
+  <div class="empty-note">Просрочек нет.</div>
+  {% endif %}
 </div>
-{% endif %}
 {% endblock %}
