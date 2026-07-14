@@ -1,0 +1,17 @@
+{# HTML-фрагмент для модалки drill-down (не отдельная страница — вставляется через fetch+innerHTML) #}
+{% if reviews %}
+{% for r in reviews %}
+<div class="modal-review">
+  <div class="modal-review-head">
+    <span class="stars">{{ '★' * (r.rating or 0) }}{{ '☆' * (5 - (r.rating or 0)) }}</span>
+    <span class="platform">{{ r.platform_label }}</span>
+    <span>{{ r.author or 'без имени' }}</span>
+    <span>&middot;</span>
+    <span>{{ r.review_date[:10] if r.review_date else '' }}</span>
+  </div>
+  <div class="modal-review-text">{{ r.text or '(без текста)' }}</div>
+</div>
+{% endfor %}
+{% else %}
+<div class="modal-empty">Отзывы не найдены (могли выпасть из окна с момента последнего пересчёта).</div>
+{% endif %}

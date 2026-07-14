@@ -106,6 +106,77 @@
   .hidden-item .tags { color: var(--danger); font-size: 13px; white-space: nowrap; }
 
   .empty-note { color: var(--text-dim); font-size: 14px; padding: 12px 0; }
+
+  .alert-item.clickable, .offender-item.clickable {
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .alert-item.clickable:hover, .offender-item.clickable:hover {
+    border-color: var(--accent-2);
+  }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 60px 20px;
+    overflow-y: auto;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 640px;
+    max-height: calc(100vh - 120px);
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 { font-size: 16px; font-weight: 700; }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-body { padding: 18px 22px; overflow-y: auto; }
+  .modal-loading { color: var(--text-dim); font-size: 14px; text-align: center; padding: 30px 0; }
+
+  .modal-review {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .modal-review:last-child { margin-bottom: 0; }
+  .modal-review-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .modal-review-head .stars { color: #e0b84c; }
+  .modal-review-head .platform { font-weight: 600; color: var(--text); }
+  .modal-review-text { font-size: 14px; line-height: 1.5; }
+  .modal-empty { color: var(--text-dim); font-size: 14px; text-align: center; padding: 20px 0; }
 </style>
 
 <div class="summary-row">
@@ -142,7 +213,7 @@
   {% if tag_alerts %}
   <div class="alert-list">
     {% for a in tag_alerts %}
-    <div class="alert-item">
+    <div class="alert-item clickable" onclick="openAlertModal({{ a.id }}, '{{ a.tag|e }}')">
       <span class="severity-dot {{ a.severity }}"></span>
       <span class="tag">{{ a.tag }}</span>
       <span class="meta">{{ a.count_in_window }} за {{ a.window_matched }} дн.{% if a.status == 'acknowledged' %} · в работе{% endif %}</span>
@@ -159,7 +230,7 @@
   {% if repeat_offender_alerts %}
   <div class="offender-list">
     {% for a in repeat_offender_alerts %}
-    <div class="offender-item">
+    <div class="offender-item clickable" onclick="openAlertModal({{ a.id }}, '{{ a.author|e }} · {{ platform_labels.get(a.platform, a.platform)|e }}')">
       <span class="severity-dot yellow"></span>
       <span class="author">{{ a.author }}</span>
       <span class="meta">{{ platform_labels.get(a.platform, a.platform) if platform_labels else a.platform }} · {{ a.count_in_window }} негативных отзывов</span>
@@ -256,4 +327,39 @@
   <div class="empty-note">Просрочек нет.</div>
   {% endif %}
 </div>
+
+<div class="modal-overlay" id="alertModal" onclick="if (event.target === this) closeAlertModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="alertModalTitle">Отзывы</h3>
+      <button class="modal-close" onclick="closeAlertModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="alertModalBody">
+      <div class="modal-loading">Загрузка&hellip;</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function openAlertModal(alertId, title) {
+    const overlay = document.getElementById('alertModal');
+    const body = document.getElementById('alertModalBody');
+    document.getElementById('alertModalTitle').textContent = title;
+    body.innerHTML = '<div class="modal-loading">Загрузка&hellip;</div>';
+    overlay.classList.add('open');
+
+    fetch(`{{ url_for('dashboard', slug=slug) }}/alert/${alertId}/reviews`)
+      .then(r => r.text())
+      .then(html => { body.innerHTML = html; })
+      .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзывы.</div>'; });
+  }
+
+  function closeAlertModal() {
+    document.getElementById('alertModal').classList.remove('open');
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeAlertModal();
+  });
+</script>
 {% endblock %}

@@ -623,3 +623,37 @@ def get_reviews_paginated(
         (*params, limit, offset),
     ).fetchall()
     return [dict(row) for row in rows], total
+
+
+def get_reviews_for_tag_alert(conn: sqlite3.Connection, tag: str, location_id: str, window_days: int) -> list[dict]:
+    """Drill-down "алерт → сырые отзывы": те же негативные отзывы с этим тегом за
+    window_days, что и увидел бы recompute_all при пересчёте severity (alert_engine
+    хранит только агрегированный счётчик, не конкретные review_id — пересчитываем
+    заново на актуальный момент, а не замораживаем список на момент срабатывания)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    rows = conn.execute(
+        """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence
+           FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
+           WHERE r.location_id = ? AND rt.tag = ? AND rt.tag_sentiment = 'negative' AND r.review_date >= ?
+           ORDER BY r.review_date DESC""",
+        (location_id, tag, cutoff),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_reviews_for_repeat_offender(conn: sqlite3.Connection, author: str, platform: str, location_id: str, window_days: int) -> list[dict]:
+    """Drill-down для repeat-offender алерта — негативные отзывы конкретного автора
+    на конкретной площадке за то же окно, что использовал compute_repeat_offenders."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    rows = conn.execute(
+        """SELECT id, author, rating, text, platform, review_date
+           FROM reviews
+           WHERE location_id = ? AND author = ? AND platform = ? AND sentiment = 'negative' AND review_date >= ?
+           ORDER BY review_date DESC""",
+        (location_id, author, platform, cutoff),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_review_by_id(conn: sqlite3.Connection, review_id: int) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM reviews WHERE id=?", (review_id,)).fetchone()

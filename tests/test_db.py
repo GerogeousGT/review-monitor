@@ -299,3 +299,57 @@ def test_reviews_paginated_filters_and_counts_total(conn):
     page, total = db.get_reviews_paginated(conn, "loc1", limit=1, offset=1)
     assert total == 3
     assert len(page) == 1
+
+
+def test_reviews_for_tag_alert_matches_window_and_tag(conn):
+    now = datetime.now(timezone.utc)
+
+    def _review(external_id, days_old):
+        r = {"external_id": external_id, "author": None, "rating": 2, "text": "т",
+             "date": (now - timedelta(days=days_old)).isoformat()}
+        db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+        rid = conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+        conn.execute("UPDATE reviews SET sentiment='negative' WHERE id=?", (rid,))
+        conn.commit()
+        return rid
+
+    in_window = _review("tw1", days_old=10)
+    db.insert_review_tag(conn, in_window, "услуги", "negative", "плохо")
+
+    out_of_window = _review("tw2", days_old=100)
+    db.insert_review_tag(conn, out_of_window, "услуги", "negative", "плохо")
+
+    other_tag = _review("tw3", days_old=5)
+    db.insert_review_tag(conn, other_tag, "цена", "negative", "дорого")
+
+    result = db.get_reviews_for_tag_alert(conn, "услуги", "loc1", window_days=30)
+    ids = {r["id"] for r in result}
+
+    assert ids == {in_window}
+
+
+def test_reviews_for_repeat_offender_matches_author_platform_window(conn):
+    now = datetime.now(timezone.utc)
+
+    def _review(external_id, author, platform, days_old):
+        r = {"external_id": external_id, "author": author, "rating": 1, "text": "плохо",
+             "date": (now - timedelta(days=days_old)).isoformat()}
+        db.insert_review_if_new(conn, "loc1", platform, r)
+        rid = conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+        conn.execute("UPDATE reviews SET sentiment='negative' WHERE id=?", (rid,))
+        conn.commit()
+        return rid
+
+    match = _review("ro1", "Антон", "2gis", days_old=10)
+    _review("ro2", "Антон", "yandex_maps", days_old=10)  # другая площадка — не в счёт
+    _review("ro3", "Борис", "2gis", days_old=10)  # другой автор — не в счёт
+    _review("ro4", "Антон", "2gis", days_old=100)  # вне окна — не в счёт
+
+    result = db.get_reviews_for_repeat_offender(conn, "Антон", "2gis", "loc1", window_days=60)
+    ids = {r["id"] for r in result}
+
+    assert ids == {match}
+
+
+def test_get_review_by_id_returns_none_for_missing(conn):
+    assert db.get_review_by_id(conn, 9999) is None

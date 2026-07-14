@@ -297,5 +297,38 @@ def dashboard_reviews(slug: str):
     )
 
 
+@app.route("/dashboard/<slug>/alert/<int:alert_id>/reviews")
+@login_required
+def alert_reviews_fragment(slug: str, alert_id: int):
+    """Drill-down "алерт → сырые отзывы" для модалки на дашборде — HTML-фрагмент,
+    не отдельная страница (см. CHANGELOG 2026-07-14: почему фрагмент, а не JSON —
+    переиспользует уже готовую карточку отзыва, не дублирует логику отображения на JS)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return "Доступ запрещён", 403
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    alert = core_db.get_alert_by_id(conn, alert_id)
+    if alert is None:
+        conn.close()
+        return render_template("_alert_reviews_fragment.html", reviews=[], title="Алерт не найден")
+
+    if alert["alert_type"] == "repeat_offender":
+        _, author, platform = alert["tag"].split(":", 2)
+        reviews = core_db.get_reviews_for_repeat_offender(conn, author, platform, alert["location_id"], alert["window_matched"])
+        title = f"{author} · {PLATFORM_LABELS.get(platform, platform)}"
+    else:
+        reviews = core_db.get_reviews_for_tag_alert(conn, alert["tag"], alert["location_id"], alert["window_matched"])
+        title = alert["tag"]
+
+    for r in reviews:
+        r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
+
+    conn.close()
+    return render_template("_alert_reviews_fragment.html", reviews=reviews, title=title)
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8789)
