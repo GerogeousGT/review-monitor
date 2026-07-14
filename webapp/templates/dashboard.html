@@ -60,9 +60,9 @@
   }
   .alert-item .tag, .offender-item .author { font-weight: 700; }
   .alert-item .meta, .offender-item .meta, .overdue-item .meta { color: var(--text-dim); margin-left: auto; font-size: 13px; }
-  .severity-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-  .severity-dot.red { background: var(--danger); }
-  .severity-dot.yellow { background: #e0b84c; }
+  .severity-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+  .severity-dot.red { background: var(--danger); box-shadow: 0 0 8px rgba(234, 94, 110, 0.5); }
+  .severity-dot.yellow { background: #e0b84c; box-shadow: 0 0 8px rgba(224, 184, 76, 0.5); }
 
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
