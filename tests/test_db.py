@@ -353,3 +353,38 @@ def test_reviews_for_repeat_offender_matches_author_platform_window(conn):
 
 def test_get_review_by_id_returns_none_for_missing(conn):
     assert db.get_review_by_id(conn, 9999) is None
+
+
+def test_reviews_for_tag_alert_handles_mixed_date_formats(conn):
+    """Регрессия (2026-07-14): drill-down показывал 13 отзывов вместо честных 11 из
+    alert_engine — SQL-запрос сравнивал review_date >= ? КАК СТРОКИ, а площадки отдают
+    разные форматы дат (Z-суффикс, +03:00, +07:00). Строковое сравнение даёт неверную
+    границу окна на этих форматах. Тест намеренно НЕ использует единый .isoformat() для
+    всех записей (как остальные тесты в файле) — иначе баг снова прошёл бы незамеченным."""
+    now = datetime.now(timezone.utc)
+
+    def _review_raw_date(external_id, review_date_str):
+        r = {"external_id": external_id, "author": None, "rating": 2, "text": "т", "date": review_date_str}
+        db.insert_review_if_new(conn, "loc1", "2gis", r)
+        rid = conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+        conn.execute("UPDATE reviews SET sentiment='negative' WHERE id=?", (rid,))
+        conn.commit()
+        return rid
+
+    # 10 дней назад, но в формате с Z-суффиксом вместо +00:00 — строковое сравнение
+    # "2026-07-04T10:00:00Z" >= "2026-06-14T10:00:00+00:00" даёт неверный результат
+    # (буква 'Z' > '+' лексикографически, но это не значит "позже по времени")
+    z_format_date = (now - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    in_window = _review_raw_date("mixed1", z_format_date)
+    db.insert_review_tag(conn, in_window, "услуги", "negative", "плохо")
+
+    # 100 дней назад с offset +07:00 — вне 60-дневного окна, должен быть исключён
+    old_date_offset = (now - timedelta(days=100)).strftime("%Y-%m-%dT%H:%M:%S+07:00")
+    out_of_window = _review_raw_date("mixed2", old_date_offset)
+    db.insert_review_tag(conn, out_of_window, "услуги", "negative", "плохо")
+
+    result = db.get_reviews_for_tag_alert(conn, "услуги", "loc1", window_days=60)
+    ids = {r["id"] for r in result}
+
+    assert ids == {in_window}
+    assert out_of_window not in ids

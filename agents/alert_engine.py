@@ -136,6 +136,19 @@ def recompute_all(conn, cfg, db) -> list[dict]:
             db.update_alert_severity(conn, existing["id"], result["severity"], result["window_matched"], result["count_in_window"])
             changes.append({"tag": tag, "location_id": location_id, "action": "updated", "previous_severity": existing["severity"], **result})
 
+    # "Осиротевшие" алерты (2026-07-14): тег переименован/удалён из словаря конфига
+    # (например при разбивке слишком широкого тега на несколько узких — см. CHANGELOG),
+    # и в текущих событиях больше не встречается. by_tag_location никогда не дойдёт
+    # до такого алерта, потому что цикл выше строится ИЗ events, а не из уже открытых
+    # алертов — без этой проверки такой алерт остался бы open навсегда, "призраком".
+    for alert in db.get_all_active_alerts(conn):
+        if alert["alert_type"] != "tag":
+            continue
+        if (alert["tag"], alert["location_id"]) in by_tag_location:
+            continue
+        db.resolve_alert(conn, alert["id"])
+        changes.append({"tag": alert["tag"], "location_id": alert["location_id"], "action": "resolved_auto", "severity": "green", "window_matched": None, "count_in_window": 0})
+
     return changes
 
 

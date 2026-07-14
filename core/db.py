@@ -629,30 +629,56 @@ def get_reviews_for_tag_alert(conn: sqlite3.Connection, tag: str, location_id: s
     """Drill-down "алерт → сырые отзывы": те же негативные отзывы с этим тегом за
     window_days, что и увидел бы recompute_all при пересчёте severity (alert_engine
     хранит только агрегированный счётчик, не конкретные review_id — пересчитываем
-    заново на актуальный момент, а не замораживаем список на момент срабатывания)."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    заново на актуальный момент, а не замораживаем список на момент срабатывания).
+
+    Фильтрация окна — в Python через parse_review_date, НЕ строковым сравнением в SQL
+    (review_date >= ?): формат даты отличается между площадками (Z-суффикс/+03:00/
+    +07:00), строковое сравнение даёт неверную границу окна — баг, найденный 2026-07-14
+    (drill-down показывал 13 отзывов вместо честных 11 из alert_engine, см. CHANGELOG)."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=window_days)
     rows = conn.execute(
         """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence
            FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
-           WHERE r.location_id = ? AND rt.tag = ? AND rt.tag_sentiment = 'negative' AND r.review_date >= ?
-           ORDER BY r.review_date DESC""",
-        (location_id, tag, cutoff),
+           WHERE r.location_id = ? AND rt.tag = ? AND rt.tag_sentiment = 'negative' AND r.review_date IS NOT NULL""",
+        (location_id, tag),
     ).fetchall()
-    return [dict(row) for row in rows]
+
+    result = []
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt >= cutoff:
+            result.append(dict(row))
+    result.sort(key=lambda r: r["review_date"], reverse=True)
+    return result
 
 
 def get_reviews_for_repeat_offender(conn: sqlite3.Connection, author: str, platform: str, location_id: str, window_days: int) -> list[dict]:
     """Drill-down для repeat-offender алерта — негативные отзывы конкретного автора
-    на конкретной площадке за то же окно, что использовал compute_repeat_offenders."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).isoformat()
+    на конкретной площадке за то же окно, что использовал compute_repeat_offenders.
+    Фильтрация в Python — см. комментарий в get_reviews_for_tag_alert."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=window_days)
     rows = conn.execute(
         """SELECT id, author, rating, text, platform, review_date
            FROM reviews
-           WHERE location_id = ? AND author = ? AND platform = ? AND sentiment = 'negative' AND review_date >= ?
-           ORDER BY review_date DESC""",
-        (location_id, author, platform, cutoff),
+           WHERE location_id = ? AND author = ? AND platform = ? AND sentiment = 'negative' AND review_date IS NOT NULL""",
+        (location_id, author, platform),
     ).fetchall()
-    return [dict(row) for row in rows]
+
+    result = []
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt >= cutoff:
+            result.append(dict(row))
+    result.sort(key=lambda r: r["review_date"], reverse=True)
+    return result
 
 
 def get_review_by_id(conn: sqlite3.Connection, review_id: int) -> sqlite3.Row | None:
