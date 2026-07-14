@@ -5,6 +5,9 @@ __pycache__/
 clients/*/.env
 clients/*/db/
 clients/*/telegram_offset.json
+webapp/users.db
+webapp/.venv/
+webapp/.venv_test/
 _calibration*.html
 _calibration*.json
 KWORK_OFFER.md

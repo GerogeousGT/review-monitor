@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Клиенты — ReviewPulse{% endblock %}
+{% block body %}
+<style>
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  .subtitle { color: var(--text-dim); font-size: 15px; margin-bottom: 32px; }
+  .client-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .client-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    text-decoration: none;
+    color: var(--text);
+    display: block;
+    transition: border-color 0.15s;
+  }
+  .client-card:hover { border-color: var(--accent-2); }
+  .client-card .name {
+    font-weight: 700;
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  .client-card .slug {
+    color: var(--text-dim);
+    font-size: 13px;
+    font-family: monospace;
+  }
+  .empty {
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+</style>
+<div class="topbar">
+  <div class="brand">Review<span class="accent">Pulse</span></div>
+  <div class="user-info">
+    {{ username }}
+    <a href="{{ url_for('logout') }}">Выйти</a>
+  </div>
+</div>
+<main>
+  <h1>Клиенты</h1>
+  <div class="subtitle">Выберите компанию, чтобы открыть дашборд</div>
+
+  {% if clients %}
+  <div class="client-grid">
+    {% for slug in clients %}
+    <a class="client-card" href="{{ url_for('dashboard', slug=slug) }}">
+      <div class="name">{{ slug }}</div>
+      <div class="slug">{{ slug }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">Пока нет подключённых клиентов.</div>
+  {% endif %}
+</main>
+{% endblock %}

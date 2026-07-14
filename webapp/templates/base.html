@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ReviewPulse{% endblock %}</title>
+<style>
+  :root {
+    --bg: #0e1420;
+    --surface: #131b2b;
+    --surface-2: #1a2436;
+    --border: rgba(255,255,255,0.08);
+    --text: #eef2f7;
+    --text-dim: #8a96a8;
+    --accent: #5eeaa8;
+    --accent-2: #5ea0ea;
+    --danger: #ea5e6e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: linear-gradient(160deg, var(--bg) 0%, var(--surface) 55%, #0c1119 100%);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+  }
+  .brand .accent { color: var(--accent); }
+  .topbar .user-info {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .topbar a {
+    color: var(--text-dim);
+    text-decoration: none;
+  }
+  .topbar a:hover { color: var(--text); }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 24px;
+  }
+  a { color: var(--accent-2); }
+</style>
+</head>
+<body>
+  {% block body %}{% endblock %}
+</body>
+</html>

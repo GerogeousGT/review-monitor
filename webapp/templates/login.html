@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Вход — ReviewPulse{% endblock %}
+{% block body %}
+<style>
+  .login-wrap {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 360px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 36px 32px;
+  }
+  .login-card .brand {
+    text-align: center;
+    margin-bottom: 28px;
+    font-size: 20px;
+  }
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .field input {
+    width: 100%;
+    padding: 11px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    color: var(--text);
+    font-size: 15px;
+  }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent-2);
+  }
+  button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    color: #0c1119;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    margin-top: 6px;
+  }
+  button:hover { opacity: 0.92; }
+  .error {
+    background: rgba(234, 94, 110, 0.12);
+    border: 1px solid rgba(234, 94, 110, 0.35);
+    color: var(--danger);
+    font-size: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+  }
+</style>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="brand">Review<span class="accent">Pulse</span></div>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="POST">
+      <div class="field">
+        <label for="username">Логин</label>
+        <input type="text" id="username" name="username" autofocus required>
+      </div>
+      <div class="field">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" required>
+      </div>
+      <button type="submit">Войти</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
