@@ -16,15 +16,15 @@
     border-radius: 12px;
     padding: 18px 20px;
   }
-  .summary-card .num { font-size: 28px; font-weight: 800; line-height: 1; }
-  .summary-card .label { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+  .summary-card .num { font-size: 1.75rem; font-weight: 800; line-height: 1; }
+  .summary-card .label { color: var(--text-dim); font-size: 0.8125rem; margin-top: 6px; }
   .summary-card.red .num { color: var(--danger); }
   .summary-card.yellow .num { color: #e0b84c; }
   .summary-card.neutral .num { color: var(--accent-2); }
 
   .section { margin-bottom: 36px; scroll-margin-top: 20px; }
   .section h2 {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 700;
     color: var(--text-dim);
     text-transform: uppercase;
@@ -45,7 +45,7 @@
   .sentiment-bar .seg.positive { background: var(--accent); }
   .sentiment-bar .seg.neutral { background: #e0b84c; }
   .sentiment-bar .seg.negative { background: var(--danger); }
-  .sentiment-legend { display: flex; gap: 16px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+  .sentiment-legend { display: flex; gap: 16px; font-size: 0.8125rem; color: var(--text-dim); white-space: nowrap; }
 
   .alert-list, .offender-list, .overdue-list, .hidden-list { display: flex; flex-direction: column; gap: 8px; }
   .alert-item, .offender-item, .overdue-item, .hidden-item {
@@ -56,10 +56,10 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .alert-item .tag, .offender-item .author { font-weight: 700; }
-  .alert-item .meta, .offender-item .meta, .overdue-item .meta { color: var(--text-dim); margin-left: auto; font-size: 13px; }
+  .alert-item .meta, .offender-item .meta, .overdue-item .meta { color: var(--text-dim); margin-left: auto; font-size: 0.8125rem; }
   .severity-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
   .severity-dot.red { background: var(--danger); box-shadow: 0 0 8px rgba(234, 94, 110, 0.5); }
   .severity-dot.yellow { background: #e0b84c; box-shadow: 0 0 8px rgba(224, 184, 76, 0.5); }
@@ -75,16 +75,16 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px 14px;
-    font-size: 14px;
+    font-size: 0.875rem;
   }
   .tag-rank-item .count { color: var(--text-dim); }
 
-  table.platform-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.platform-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
   table.platform-table th {
     text-align: left;
     color: var(--text-dim);
     font-weight: 600;
-    font-size: 12px;
+    font-size: 0.75rem;
     text-transform: uppercase;
     padding: 8px 12px;
     border-bottom: 1px solid var(--border);
@@ -95,10 +95,10 @@
   }
 
   .hidden-item .stars { color: #e0b84c; white-space: nowrap; }
-  .hidden-item .text { color: var(--text-dim); font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hidden-item .tags { color: var(--danger); font-size: 13px; white-space: nowrap; }
+  .hidden-item .text { color: var(--text-dim); font-size: 0.8125rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hidden-item .tags { color: var(--danger); font-size: 0.8125rem; white-space: nowrap; }
 
-  .empty-note { color: var(--text-dim); font-size: 14px; padding: 12px 0; }
+  .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 12px 0; }
 
   .alert-item.clickable, .offender-item.clickable {
     cursor: pointer;
@@ -137,18 +137,18 @@
     padding: 18px 22px;
     border-bottom: 1px solid var(--border);
   }
-  .modal-header h3 { font-size: 16px; font-weight: 700; }
+  .modal-header h3 { font-size: 1rem; font-weight: 700; }
   .modal-close {
     background: none;
     border: none;
     color: var(--text-dim);
-    font-size: 20px;
+    font-size: 1.25rem;
     cursor: pointer;
     line-height: 1;
   }
   .modal-close:hover { color: var(--text); }
   .modal-body { padding: 18px 22px; overflow-y: auto; }
-  .modal-loading { color: var(--text-dim); font-size: 14px; text-align: center; padding: 30px 0; }
+  .modal-loading { color: var(--text-dim); font-size: 0.875rem; text-align: center; padding: 30px 0; }
 
   .modal-review {
     background: var(--surface);
@@ -162,14 +162,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: 0.8125rem;
     color: var(--text-dim);
     margin-bottom: 8px;
   }
   .modal-review-head .stars { color: #e0b84c; }
   .modal-review-head .platform { font-weight: 600; color: var(--text); }
-  .modal-review-text { font-size: 14px; line-height: 1.5; }
-  .modal-empty { color: var(--text-dim); font-size: 14px; text-align: center; padding: 20px 0; }
+  .modal-review-text { font-size: 0.875rem; line-height: 1.5; }
+  .modal-empty { color: var(--text-dim); font-size: 0.875rem; text-align: center; padding: 20px 0; }
 </style>
 
 <div class="summary-row">
@@ -305,7 +305,7 @@
 </div>
 
 <div class="section">
-  <h2>Скрытые проблемы <span style="color:var(--text-dim); font-weight:400; font-size:13px;">— высокая оценка, но есть жалоба в тексте</span></h2>
+  <h2>Скрытые проблемы <span style="color:var(--text-dim); font-weight:400; font-size:0.8125rem;">— высокая оценка, но есть жалоба в тексте</span></h2>
   {% if hidden_problems %}
   <div class="hidden-list">
     {% for h in hidden_problems %}

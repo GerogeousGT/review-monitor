@@ -17,7 +17,13 @@
     --danger: #ea5e6e;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
+  html {
+    scroll-behavior: smooth;
+    /* Базовый размер шрифта всего сайта — 16px x 1.15 (одобрено визуально 2026-07-14,
+       было временно через zoom, закреплено через rem по всем шаблонам). Поменять
+       масштаб всего сайта разом — правь только эту строку. */
+    font-size: 18.4px;
+  }
   body {
     background: linear-gradient(160deg, var(--bg) 0%, var(--surface) 55%, #0c1119 100%);
     color: var(--text);
@@ -33,7 +39,7 @@
   }
   .brand {
     font-weight: 800;
-    font-size: 18px;
+    font-size: 1.125rem;
     letter-spacing: -0.01em;
   }
   .brand .accent { color: var(--accent); }
@@ -41,7 +47,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    font-size: 14px;
+    font-size: 0.875rem;
     color: var(--text-dim);
   }
   .topbar a {
