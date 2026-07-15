@@ -388,3 +388,25 @@ def test_reviews_for_tag_alert_handles_mixed_date_formats(conn):
 
     assert ids == {in_window}
     assert out_of_window not in ids
+
+
+def test_active_alerts_for_tags_matches_only_requested_tag_names(conn):
+    """Регрессия (2026-07-15): main_reply.py передавал ВСЕ теги отзыва (включая
+    позитивные) в get_active_alerts_for_tags — позитивный отзыв с тегом
+    "персонал":positive получал в internal_note контекст открытого алерта по теме
+    "персонал" (набранного другими, негативными отзывами), давая противоречивую
+    заметку менеджеру ("3-я жалоба на персонал" на отзыве, где персонал хвалят).
+    Сама функция БД работает корректно — ищет строго по переданным именам тегов,
+    без знания о тональности; фикс был на стороне вызывающего кода (main_reply.py:
+    передавать только теги с tag_sentiment='negative' этого конкретного отзыва)."""
+    db.create_alert(conn, "персонал", "loc1", "yellow", 90, 3)
+    db.create_alert(conn, "цена", "loc1", "red", 90, 5)
+
+    result = db.get_active_alerts_for_tags(conn, "loc1", ["персонал"])
+    assert {a["tag"] for a in result} == {"персонал"}
+
+    result_empty = db.get_active_alerts_for_tags(conn, "loc1", [])
+    assert result_empty == []
+
+    result_none_match = db.get_active_alerts_for_tags(conn, "loc1", ["чистота"])
+    assert result_none_match == []

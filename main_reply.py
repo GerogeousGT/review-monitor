@@ -21,8 +21,13 @@ def main():
 
     for review in reviews:
         tags = db.get_review_tags(conn, review["id"])
-        tag_names = [t["tag"] for t in tags]
-        alert_context = db.get_active_alerts_for_tags(conn, review["location_id"], tag_names)
+        # Только НЕГАТИВНЫЕ теги этого отзыва — иначе позитивный отзыв с тегом
+        # "персонал":positive подмешивал бы контекст открытого алерта по теме
+        # "персонал" (набранного ДРУГИМИ отзывами), и internal_note получалась
+        # противоречивой: "3-я жалоба на персонал" на отзыве, где персонал хвалят
+        # (см. CHANGELOG 2026-07-15).
+        negative_tag_names = [t["tag"] for t in tags if t["tag_sentiment"] == "negative"]
+        alert_context = db.get_active_alerts_for_tags(conn, review["location_id"], negative_tag_names)
 
         try:
             result = draft_reply(dict(review), tags, tone_guide, alert_context)
