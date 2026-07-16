@@ -1,7 +1,7 @@
 """Проходит по несанализированным отзывам, вызывает Sentiment Analyst, пишет теги и тональность."""
 from core.llm_provider import RateLimitError
 
-from core.config import load_config
+from core.config import load_config, load_few_shot_examples
 from core.db import (
     get_connection,
     init_db,
@@ -19,6 +19,7 @@ from agents.sentiment_analyst import analyze_review, compute_reply_deadline
 
 def main():
     cfg = load_config()
+    few_shot_examples = load_few_shot_examples()
     conn = get_connection()
     init_db(conn)
     seed_category_dictionary(conn, cfg["categories"])
@@ -35,7 +36,7 @@ def main():
 
     for i, review in enumerate(reviews):
         try:
-            result = analyze_review(review["text"] or "", review["rating"], tag_dictionary, category_dictionary)
+            result = analyze_review(review["text"] or "", review["rating"], tag_dictionary, category_dictionary, few_shot_examples)
         except RateLimitError as e:
             remaining = len(reviews) - i
             print(f"\nЛимит провайдера LLM исчерпан. Разобрано {i} из {len(reviews)}, осталось {remaining}.")
@@ -68,7 +69,9 @@ def main():
                 if category not in known_categories:
                     category = "не определено"
                 insert_tag_if_new(conn, tag, category)
-            insert_review_tag(conn, review["id"], tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""))
+            zone = aspect.get("zone")
+            zone = zone.strip().lower() if zone else None
+            insert_review_tag(conn, review["id"], tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""), zone)
 
         tags_str = ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", []))
         print(f"[review {review['id']}] {result['sentiment']} ({result['sentiment_score']}/10) — {tags_str or 'без тем'}")

@@ -44,7 +44,11 @@ CREATE TABLE review_tags (
     review_id INTEGER NOT NULL REFERENCES reviews(id),
     tag TEXT NOT NULL,
     tag_sentiment TEXT NOT NULL,         -- positive | neutral | negative
-    tag_evidence TEXT                    -- цитата из отзыва, на основании которой поставлен тег
+    tag_evidence TEXT,                   -- цитата из отзыва, на основании которой поставлен тег
+    zone TEXT                            -- необязательное место (тренажёрный зал/бассейн/...),
+                                          -- НЕ участвует в подсчёте порогов Alert Engine (он
+                                          -- считает по tag) — только доп.контекст для ручного
+                                          -- разбора "жалобы на тему X — в какой зоне больше всего"
 );
 
 -- Описания категорий — модель сверяется с ними перед тем, как предложить новый тег

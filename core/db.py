@@ -55,6 +55,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "internal_note" not in review_columns:
         conn.execute("ALTER TABLE reviews ADD COLUMN internal_note TEXT")
 
+    review_tags_columns = {row["name"] for row in conn.execute("PRAGMA table_info(review_tags)")}
+    if "zone" not in review_tags_columns:
+        # Необязательное место (тренажёрный зал/бассейн/...), отдельно от tag (темы) —
+        # НЕ участвует в подсчёте порогов Alert Engine, см. db/schema.sql.
+        conn.execute("ALTER TABLE review_tags ADD COLUMN zone TEXT")
+
     alert_columns = {row["name"] for row in conn.execute("PRAGMA table_info(alerts)")}
     if "alert_type" not in alert_columns:
         # 'tag' — старые/обычные тег-алерты (дефолт, обратная совместимость).
@@ -225,17 +231,24 @@ def update_review_sentiment(
     conn.commit()
 
 
-def insert_review_tag(conn: sqlite3.Connection, review_id: int, tag: str, tag_sentiment: str, tag_evidence: str) -> None:
+def insert_review_tag(
+    conn: sqlite3.Connection,
+    review_id: int,
+    tag: str,
+    tag_sentiment: str,
+    tag_evidence: str,
+    zone: str | None = None,
+) -> None:
     conn.execute(
-        "INSERT INTO review_tags (review_id, tag, tag_sentiment, tag_evidence) VALUES (?, ?, ?, ?)",
-        (review_id, tag, tag_sentiment, tag_evidence),
+        "INSERT INTO review_tags (review_id, tag, tag_sentiment, tag_evidence, zone) VALUES (?, ?, ?, ?, ?)",
+        (review_id, tag, tag_sentiment, tag_evidence, zone),
     )
     conn.commit()
 
 
 def get_review_tags(conn: sqlite3.Connection, review_id: int) -> list[dict]:
     rows = conn.execute(
-        "SELECT tag, tag_sentiment, tag_evidence FROM review_tags WHERE review_id=?", (review_id,)
+        "SELECT tag, tag_sentiment, tag_evidence, zone FROM review_tags WHERE review_id=?", (review_id,)
     ).fetchall()
     return [dict(row) for row in rows]
 
