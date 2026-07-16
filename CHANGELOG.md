@@ -1,5 +1,39 @@
 # CHANGELOG — review-monitor
 
+## [2026-07-16] — Webhook вместо polling для кнопки "Связался с клиентом"
+
+Заменили `main_repeat_offender_poll.py` (getUpdates раз в 5-15 минут, заметная
+задержка между нажатием и исчезновением кнопки — плохой UX) на webhook —
+Telegram сам стучится мгновенно при нажатии. Новый процесс на VPS НЕ
+поднимался — переиспользован уже существующий `webapp` (Flask, постоянно
+работает на reviewpulse.ru через nginx), добавлен ещё один роут.
+
+Ключевая находка при реализации: `agents/notifier.py` читал
+`TELEGRAM_BOT_TOKEN` из `os.environ` глобально — работает для batch-скриптов
+(один `CLIENT_SLUG` на процесс), но webapp обслуживает НЕСКОЛЬКО клиентов в
+одном процессе одновременно, глобальный `os.environ` тут в принципе не
+подходит (тот же класс проблемы, что уже решён для БД через `_client_db_path`).
+Это не путаница в организации `.env`-файлов — у каждого клиента уже был свой
+`clients/<slug>/.env` с самого начала, просто для Telegram-токена не было
+аналога `_client_db_path`.
+
+Добавлено:
+- `webapp/app.py: _client_bot_token(slug)` — читает токен точечно из `.env`
+  клиента (`dotenv_values`, не грузит в общий `os.environ`).
+- `agents/notifier.py`: `get_updates`/`answer_callback_query`/
+  `remove_message_keyboard` получили опциональный параметр `token` (дефолт на
+  `os.environ` — batch-скрипты не задеты). Новая `set_webhook()`.
+- `webapp/app.py: POST /telegram/webhook/<slug>` — принимает callback_query
+  напрямую от Telegram, та же бизнес-логика, что была в
+  `main_repeat_offender_poll.py` (acknowledge_alert, ответ на callback, снятие
+  кнопки), без offset-файла — Telegram сам гарантирует доставку через webhook.
+- `main_set_webhook.py` — регистрация webhook (`setWebhook` в Telegram API),
+  запускать вручную один раз на каждого клиента.
+
+Не сделано в этой сессии: сама регистрация webhook на прод-ботах (нужно
+запустить `main_set_webhook.py` для worldclass и daudelsport), вывод из
+эксплуатации `main_repeat_offender_poll.py`/его systemd timer.
+
 ## [2026-07-16] — Баг: один отзыв дублировался в drill-down алерта
 
 ### Найдено

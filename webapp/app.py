@@ -36,6 +36,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from core import db as core_db  # noqa: E402 — после sys.path.insert, так и задумано
 from core.config import load_config as core_load_config  # noqa: E402
 from agents.alert_engine import recompute_all, recompute_repeat_offenders, recompute_zone_alerts  # noqa: E402
+from agents.notifier import answer_callback_query, remove_message_keyboard  # noqa: E402
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEBAPP_SECRET_KEY", "dev-only-change-me")
@@ -81,6 +82,19 @@ def _visible_clients(user: User) -> list[str]:
 
 def _client_db_path(slug: str) -> Path:
     return CLIENTS_DIR / slug / "db" / "reviews.db"
+
+
+def _client_bot_token(slug: str) -> str | None:
+    """Свой Telegram-бот на каждого клиента (clients/<slug>/.env) — та же причина,
+    что у _client_db_path: webapp обслуживает НЕСКОЛЬКО клиентов в одном процессе,
+    нельзя полагаться на os.environ/CLIENT_SLUG (это для batch-скриптов, один
+    процесс — один клиент). Читаем .env клиента точечно, не грузим его в общий
+    os.environ (не хотим смешивать токены разных клиентов в одном процессе)."""
+    from dotenv import dotenv_values
+    env_path = CLIENTS_DIR / slug / ".env"
+    if not env_path.exists():
+        return None
+    return dotenv_values(env_path).get("TELEGRAM_BOT_TOKEN")
 
 
 def _client_display_name(slug: str) -> str:
@@ -450,6 +464,63 @@ def alert_reviews_fragment(slug: str, alert_id: int):
 
     conn.close()
     return render_template("_alert_reviews_fragment.html", reviews=reviews, title=title)
+
+
+@app.route("/telegram/webhook/<slug>", methods=["POST"])
+def telegram_webhook(slug: str):
+    """Приёмник callback_query от кнопки "Связался с клиентом" на repeat-offender
+    уведомлениях (2026-07-16, заменяет polling — main_repeat_offender_poll.py).
+    Telegram сам дёргает этот URL мгновенно при нажатии кнопки, задержки нет.
+
+    НЕ за @login_required — это вызывает сам Telegram, не залогиненный пользователь.
+    Секретность обеспечивается тем, что slug + сам факт валидного update от Telegram
+    (подписан токеном бота при регистрации) достаточны для этого масштаба — нет
+    отдельного secret_token в URL, риск: кто-то узнает URL и зашлёт поддельный
+    update. Последствия ограничены — можно только "подтвердить" open алерт, не
+    более (то же самое, что мог бы сделать любой сотрудник с доступом к чату)."""
+    token = _client_bot_token(slug)
+    if token is None:
+        return jsonify({"ok": False, "error": "unknown client"}), 404
+
+    update = request.get_json(silent=True) or {}
+    cq = update.get("callback_query")
+    if not cq or not cq.get("data", "").startswith("ro_ack:"):
+        return jsonify({"ok": True})  # игнорируем любые другие апдейты молча
+
+    db_path = _client_db_path(slug)
+    if not db_path.exists():
+        return jsonify({"ok": False, "error": "no db"}), 404
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    alert_id = int(cq["data"].split(":", 1)[1])
+    alert = core_db.get_alert_by_id(conn, alert_id)
+
+    if alert is None or alert["status"] == "resolved":
+        reply_text = "Этот алерт уже закрыт."
+    elif alert["status"] == "acknowledged":
+        reply_text = "Уже отмечено ранее."
+    else:
+        who = cq["from"].get("first_name") or cq["from"].get("username") or "неизвестно"
+        core_db.acknowledge_alert(conn, alert_id, who)
+        reply_text = "Спасибо, отмечено!"
+
+    conn.close()
+
+    try:
+        answer_callback_query(cq["id"], reply_text, token=token)
+    except Exception as e:
+        print(f"[webhook {slug}] не удалось ответить на callback {cq['id']}: {e}")
+
+    message = cq.get("message") or {}
+    if message.get("message_id"):
+        try:
+            remove_message_keyboard(message["chat"]["id"], message["message_id"], token=token)
+        except Exception as e:
+            print(f"[webhook {slug}] не удалось убрать кнопку у сообщения {message['message_id']}: {e}")
+
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":

@@ -43,11 +43,15 @@ def repeat_offender_ack_keyboard(alert_id: int) -> dict:
     return {"inline_keyboard": [[{"text": "✅ Связался с клиентом", "callback_data": f"ro_ack:{alert_id}"}]]}
 
 
-def get_updates(offset: int | None, timeout: int = 0) -> list[dict]:
+def get_updates(offset: int | None, timeout: int = 0, token: str | None = None) -> list[dict]:
     """Long-poll заменяется коротким запросом (timeout=0 по умолчанию) — скрипт сам
     запускается периодически через systemd timer, не держит соединение открытым
-    постоянно (это одноразовый батч-скрипт, не долгоживущий процесс, см. PLAN.md)."""
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    постоянно (это одноразовый батч-скрипт, не долгоживущий процесс, см. PLAN.md).
+
+    token — опционален, дефолт на os.environ (для batch-скриптов, один CLIENT_SLUG
+    на процесс). webapp (несколько клиентов в одном процессе) передаёт токен явно,
+    см. webapp/app.py: _client_bot_token."""
+    token = token or os.environ["TELEGRAM_BOT_TOKEN"]
     url = API_BASE.format(token=token, method="getUpdates")
     params = {"timeout": timeout, "allowed_updates": ["callback_query"]}
     if offset is not None:
@@ -60,22 +64,33 @@ def get_updates(offset: int | None, timeout: int = 0) -> list[dict]:
     return data["result"]
 
 
-def answer_callback_query(callback_query_id: str, text: str) -> None:
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
+def answer_callback_query(callback_query_id: str, text: str, token: str | None = None) -> None:
+    token = token or os.environ["TELEGRAM_BOT_TOKEN"]
     url = API_BASE.format(token=token, method="answerCallbackQuery")
     resp = requests.post(url, json={"callback_query_id": callback_query_id, "text": text}, timeout=15)
     resp.raise_for_status()
 
 
-def remove_message_keyboard(chat_id: int, message_id: int) -> None:
+def remove_message_keyboard(chat_id: int, message_id: int, token: str | None = None) -> None:
     """Убирает кнопку после нажатия — иначе кто-то может нажать её ещё раз на
     уже подтверждённом алерте (визуально сообщение остаётся, просто без кнопки)."""
-    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    token = token or os.environ["TELEGRAM_BOT_TOKEN"]
     url = API_BASE.format(token=token, method="editMessageReplyMarkup")
     resp = requests.post(
         url, json={"chat_id": chat_id, "message_id": message_id, "reply_markup": {"inline_keyboard": []}}, timeout=15
     )
     resp.raise_for_status()
+
+
+def set_webhook(webhook_url: str, token: str) -> None:
+    """Регистрация webhook — вызывается один раз (вручную, через main_set_webhook.py)
+    на каждого клиентского бота отдельно, не автоматически при каждом старте процесса."""
+    url = API_BASE.format(token=token, method="setWebhook")
+    resp = requests.post(url, json={"url": webhook_url, "allowed_updates": ["callback_query"]}, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Telegram API вернул ошибку при setWebhook: {data}")
 
 
 def format_review_message(review: dict, tags: list[dict], location_name: str) -> str:
