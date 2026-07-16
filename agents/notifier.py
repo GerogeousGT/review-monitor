@@ -10,7 +10,16 @@ import requests
 
 from core.env import load_env
 
-load_env()
+try:
+    # batch-скрипты (main_*.py) всегда запускаются с CLIENT_SLUG — здесь подставляем
+    # TELEGRAM_BOT_TOKEN клиента в os.environ, как и раньше. webapp импортирует этот
+    # модуль БЕЗ CLIENT_SLUG (обслуживает несколько клиентов в одном процессе,
+    # токен передаётся явно параметром в каждую функцию, см. webapp/app.py:
+    # _client_bot_token) — в этом случае load_env() бросит RuntimeError, это ОЖИДАЕМО,
+    # не падаем всем процессом из-за импорта модуля, который здесь не нужен целиком.
+    load_env()
+except RuntimeError:
+    pass
 
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
