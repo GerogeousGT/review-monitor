@@ -53,6 +53,24 @@ def _inject_platform_labels():
     return {"platform_labels": PLATFORM_LABELS}
 
 
+@app.context_processor
+def _inject_pending_tag_count():
+    """Бейдж "Словарь тегов (N)" на вкладке — виден со всех страниц дашборда
+    клиента, не только когда уже открыта сама вкладка, иначе новый pending-тег
+    легко пропустить (см. PLAN.md "Approval новых тегов")."""
+    slug = (request.view_args or {}).get("slug")
+    if not slug:
+        return {}
+    db_path = _client_db_path(slug)
+    if not db_path.exists():
+        return {}
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    count = len(core_db.get_pending_tags(conn))
+    conn.close()
+    return {"pending_count": count}
+
+
 class User(UserMixin):
     def __init__(self, row):
         self.id = str(row["id"])
@@ -322,6 +340,103 @@ def dashboard_reviews(slug: str):
         sentiment_filter=sentiment or "",
         tags_by_category=tags_by_category,
     )
+
+
+@app.route("/dashboard/<slug>/tags")
+@login_required
+def dashboard_tags(slug: str):
+    """Вкладка «Словарь тегов» (2026-07-16) — дерево категория→теги (active) +
+    approval-очередь новых тегов от модели снизу (см. PLAN.md "Approval новых
+    тегов через Telegram" — решение перенести approval сюда, не в Telegram-кнопки,
+    т.к. выбор категории кнопками упирается в лимит callback_data)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return "Доступ запрещён", 403
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    tags_by_category: dict[str, list[str]] = {}
+    for t in core_db.get_tag_dictionary(conn, active_only=True):
+        tags_by_category.setdefault(t["category"] or "без категории", []).append(t["tag"])
+    for tags in tags_by_category.values():
+        tags.sort()
+    tags_by_category = dict(sorted(tags_by_category.items()))
+
+    all_categories = sorted(tags_by_category.keys())
+    pending_tags = core_db.get_pending_tags(conn)
+    for p in pending_tags:
+        review_id = p.get("pending_review_id")
+        p["review_text"] = None
+        if review_id:
+            row = conn.execute("SELECT text FROM reviews WHERE id=?", (review_id,)).fetchone()
+            p["review_text"] = row["text"] if row else None
+
+    conn.close()
+
+    return render_template(
+        "dashboard_tags.html",
+        slug=slug,
+        display_name=_client_display_name(slug),
+        no_data=False,
+        tags_by_category=tags_by_category,
+        all_categories=all_categories,
+        pending_tags=pending_tags,
+    )
+
+
+@app.route("/dashboard/<slug>/pending-tag/<tag>/approve", methods=["POST"])
+@login_required
+def approve_pending_tag(slug: str, tag: str):
+    """Утвердить pending-тег как есть (см. dashboard_tags)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    core_db.approve_tag(conn, tag)
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/dashboard/<slug>/pending-tag/<tag>/approve-with-category", methods=["POST"])
+@login_required
+def approve_pending_tag_with_category(slug: str, tag: str):
+    """Утвердить pending-тег с ИСПРАВЛЕННОЙ категорией — живой кейс: модель
+    предложила тег "wifi" в категории "оснащение" (оснащение — это тренажёры/
+    инвентарь для тренировок, wifi туда не подходит), см. CHANGELOG 2026-07-16."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    new_category = (request.form.get("category") or "").strip()
+    if not new_category:
+        return jsonify({"error": "Категория не указана"}), 400
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    known = {c["category"] for c in core_db.get_category_dictionary(conn)}
+    if new_category not in known:
+        conn.close()
+        return jsonify({"error": f"Категория '{new_category}' не существует у этого клиента"}), 400
+    core_db.approve_tag(conn, tag, category=new_category)
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/dashboard/<slug>/pending-tag/<tag>/reject", methods=["POST"])
+@login_required
+def reject_pending_tag(slug: str, tag: str):
+    """Отклонить pending-тег — удаляется из словаря целиком, уже размеченные
+    review_tags не трогаются (см. core.db.reject_tag)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    core_db.reject_tag(conn, tag)
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/dashboard/<slug>/tag/<int:tag_row_id>", methods=["POST"])

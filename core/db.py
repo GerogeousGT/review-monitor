@@ -46,6 +46,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
     tag_columns = {row["name"] for row in conn.execute("PRAGMA table_info(tag_dictionary)")}
     if "description" not in tag_columns:
         conn.execute("ALTER TABLE tag_dictionary ADD COLUMN description TEXT")
+    if "pending_evidence" not in tag_columns:
+        # Approval новых тегов через Telegram (см. PLAN.md) — контекст, из какого
+        # отзыва/цитаты пришло предложение тега, нужен для уведомления.
+        conn.execute("ALTER TABLE tag_dictionary ADD COLUMN pending_evidence TEXT")
+    if "pending_review_id" not in tag_columns:
+        conn.execute("ALTER TABLE tag_dictionary ADD COLUMN pending_review_id INTEGER")
+    if "pending_notified_at" not in tag_columns:
+        conn.execute("ALTER TABLE tag_dictionary ADD COLUMN pending_notified_at TEXT")
 
     review_columns = {row["name"] for row in conn.execute("PRAGMA table_info(reviews)")}
     if "notified_at" not in review_columns:
@@ -165,15 +173,80 @@ def get_category_dictionary(conn: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in conn.execute("SELECT category, description FROM category_dictionary")]
 
 
-def insert_tag_if_new(conn: sqlite3.Connection, tag: str, category: str = "не определено") -> bool:
+def insert_tag_if_new(
+    conn: sqlite3.Connection,
+    tag: str,
+    category: str = "не определено",
+    evidence: str | None = None,
+    review_id: int | None = None,
+) -> bool:
     """Новый тег от модели попадает со статусом pending_review — не используется
-    в active-словаре, пока кто-то не утвердит его вручную."""
+    в active-словаре, пока кто-то не утвердит его вручную (см. PLAN.md "Approval
+    новых тегов"). evidence/review_id — контекст для уведомления в Telegram
+    (какая цитата в каком отзыве заставила модель предложить этот тег)."""
     cur = conn.execute(
-        "INSERT OR IGNORE INTO tag_dictionary (tag, category, status) VALUES (?, ?, 'pending_review')",
-        (tag, category),
+        """INSERT OR IGNORE INTO tag_dictionary (tag, category, status, pending_evidence, pending_review_id)
+           VALUES (?, ?, 'pending_review', ?, ?)""",
+        (tag, category, evidence, review_id),
     )
     conn.commit()
     return cur.rowcount > 0
+
+
+def get_pending_tags(conn: sqlite3.Connection) -> list[dict]:
+    """Все pending-теги (уведомлены или нет) — для дашборда, вкладка «Новые
+    теги» (см. PLAN.md "Approval новых тегов"). Не путать с
+    get_tags_pending_notification — та только для main_analyze.py, чтобы не
+    слать уведомление дважды."""
+    rows = conn.execute(
+        "SELECT tag, category, pending_evidence, pending_review_id FROM tag_dictionary "
+        "WHERE status='pending_review' ORDER BY tag"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_tags_pending_notification(conn: sqlite3.Connection) -> list[dict]:
+    """Pending-теги, которым ещё не отправили уведомление на approval (см.
+    PLAN.md "Approval новых тегов") — main_analyze.py вызывает после разбора
+    очередной пачки отзывов."""
+    rows = conn.execute(
+        "SELECT tag, category, pending_evidence, pending_review_id FROM tag_dictionary "
+        "WHERE status='pending_review' AND pending_notified_at IS NULL"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def mark_tag_notified(conn: sqlite3.Connection, tag: str) -> None:
+    conn.execute("UPDATE tag_dictionary SET pending_notified_at=? WHERE tag=?", (now_iso(), tag))
+    conn.commit()
+
+
+def approve_tag(conn: sqlite3.Connection, tag: str, category: str | None = None) -> None:
+    """Утвердить pending-тег — становится active, доступен для будущих отзывов
+    (уже размеченные review_tags с этим тегом не трогаются — они и так его имели,
+    просто он не входил в active-словарь для новых прогонов). category — если
+    approval сопровождался сменой категории (см. tag_recategorize в webapp)."""
+    if category:
+        conn.execute(
+            "UPDATE tag_dictionary SET status='active', category=?, pending_evidence=NULL, pending_review_id=NULL WHERE tag=?",
+            (category, tag),
+        )
+    else:
+        conn.execute(
+            "UPDATE tag_dictionary SET status='active', pending_evidence=NULL, pending_review_id=NULL WHERE tag=?",
+            (tag,),
+        )
+    conn.commit()
+
+
+def reject_tag(conn: sqlite3.Connection, tag: str) -> None:
+    """Отклонить pending-тег — удаляется из словаря целиком. review_tags,
+    которые уже успели получить этот тег ДО отклонения (отзыв обрабатывается
+    сразу при разборе, approval асинхронен), НЕ трогаются — редкий кейс,
+    поправить вручную через дашборд при необходимости (решение Жоржа,
+    2026-07-16)."""
+    conn.execute("DELETE FROM tag_dictionary WHERE tag=? AND status='pending_review'", (tag,))
+    conn.commit()
 
 
 # ============================================================================

@@ -52,6 +52,26 @@ def repeat_offender_ack_keyboard(alert_id: int) -> dict:
     return {"inline_keyboard": [[{"text": "✅ Связался с клиентом", "callback_data": f"ro_ack:{alert_id}"}]]}
 
 
+def format_new_tag_approval_message(pending: dict, location_name: str) -> str:
+    """Approval нового тега (см. PLAN.md "Approval новых тегов через Telegram") —
+    текстовое уведомление БЕЗ кнопок, само решение (утвердить/сменить категорию/
+    отклонить) принимается в дашборде (webapp), не в Telegram. Причина: выбор
+    категории кнопками в Telegram упирается в лимит callback_data (64 байта) —
+    "tag_setcategory:групповые программы:подразделение" уже 80 байт, реальный
+    кейс, не гипотетика (найдено 2026-07-16 при попытке сделать это кнопками).
+    Показывает КОНКРЕТНУЮ цитату и категорию, чтобы владелец мог оценить, а не
+    гадать "какой тег" (см. CHANGELOG 2026-07-16 — жёсткий фидбек Жоржа на
+    первой версии плана, где это было пропущено)."""
+    evidence = pending.get("pending_evidence") or "(без цитаты)"
+    return (
+        f"🆕 Новый тег на утверждение — <b>{_esc(location_name)}</b>\n\n"
+        f"Отзыв: «{_esc(evidence)}»\n"
+        f"Модель предлагает тег: <b>{_esc(pending['tag'])}</b>\n"
+        f"Категория: {_esc(pending['category'])}\n\n"
+        f"Утвердить/отклонить/сменить категорию — в дашборде, вкладка «Новые теги»."
+    )
+
+
 def get_updates(offset: int | None, timeout: int = 0, token: str | None = None) -> list[dict]:
     """Long-poll заменяется коротким запросом (timeout=0 по умолчанию) — скрипт сам
     запускается периодически через systemd timer, не держит соединение открытым

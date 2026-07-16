@@ -1,0 +1,135 @@
+{% extends "dashboard_base.html" %}
+{% block title %}{{ display_name }} — Словарь тегов{% endblock %}
+{% set active_tab = 'tags' %}
+{% block dashboard_content %}
+<style>
+  .tag-tree { display: flex; flex-direction: column; gap: 18px; margin-bottom: 40px; }
+  .tag-category { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
+  .tag-category-name { font-weight: 700; font-size: 0.9375rem; margin-bottom: 10px; }
+  .tag-category-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-chip {
+    font-size: 0.8125rem; padding: 4px 11px; border-radius: 999px;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+  }
+
+  .pending-section h2 { margin-bottom: 4px; }
+  .pending-note { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 18px; }
+  .pending-list { display: flex; flex-direction: column; gap: 14px; }
+  .pending-card {
+    background: var(--surface-2); border: 1px solid rgba(224,184,76,0.35); border-radius: 12px;
+    padding: 16px 18px;
+  }
+  .pending-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .pending-tag { font-weight: 700; font-size: 0.9375rem; }
+  .pending-category { font-size: 0.8125rem; color: var(--text-dim); }
+  .pending-evidence {
+    font-size: 0.875rem; line-height: 1.5; padding: 10px 12px; margin-bottom: 12px;
+    background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid var(--accent-2);
+  }
+  .pending-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pending-actions button {
+    font-size: 0.8125rem; padding: 6px 14px; border-radius: 8px; border: none;
+    cursor: pointer; font-weight: 600;
+  }
+  .pending-actions .approve { background: var(--accent); color: #0c1119; }
+  .pending-actions .reject { background: none; color: var(--danger); border: 1px solid rgba(234,94,110,0.35) !important; }
+  .pending-actions select {
+    font-size: 0.8125rem; padding: 5px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  }
+  .pending-actions .approve-category { background: var(--accent-2); color: #0c1119; }
+
+  .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 20px 0; }
+</style>
+
+<h2>Активные теги ({{ tags_by_category.values() | map('length') | sum }})</h2>
+{% if tags_by_category %}
+<div class="tag-tree">
+  {% for category, tags in tags_by_category.items() %}
+  <div class="tag-category">
+    <div class="tag-category-name">{{ category }} ({{ tags|length }})</div>
+    <div class="tag-category-tags">
+      {% for tag in tags %}
+      <span class="tag-chip">{{ tag }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-note">Словарь тегов пуст.</div>
+{% endif %}
+
+<div class="pending-section">
+  <h2>Новые теги на утверждение{% if pending_tags %} ({{ pending_tags|length }}){% endif %}</h2>
+  <div class="pending-note">Модель предложила эти теги при разборе отзывов — ни один существующий тег не подошёл по смыслу. Утверди, утверди с другой категорией или отклони.</div>
+  {% if pending_tags %}
+  <div class="pending-list">
+    {% for p in pending_tags %}
+    <div class="pending-card" data-tag="{{ p.tag }}">
+      <div class="pending-head">
+        <span class="pending-tag">🆕 {{ p.tag }}</span>
+        <span class="pending-category">→ категория: {{ p.category }}</span>
+      </div>
+      {% if p.pending_evidence %}
+      <div class="pending-evidence">«{{ p.pending_evidence }}»</div>
+      {% endif %}
+      <div class="pending-actions">
+        <button type="button" class="approve" data-action="approve">✅ Утвердить как есть</button>
+        <select class="category-select">
+          {% for c in all_categories %}
+          <option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" class="approve-category" data-action="approve-category">Утвердить с этой категорией</button>
+        <button type="button" class="reject" data-action="reject">❌ Отклонить</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Новых тегов на утверждение нет.</div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  const csrfSlug = {{ slug|tojson }};
+
+  document.querySelectorAll('.pending-card').forEach(function (card) {
+    const tag = card.dataset.tag;
+
+    function post(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {},
+        body: body,
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) {
+            alert('Ошибка: ' + data.error);
+            return;
+          }
+          location.reload();
+        })
+        .catch(function () { alert('Не удалось выполнить действие — проверь соединение.'); });
+    }
+
+    card.querySelector('[data-action="approve"]').addEventListener('click', function () {
+      post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/approve`);
+    });
+
+    card.querySelector('[data-action="approve-category"]').addEventListener('click', function () {
+      const category = card.querySelector('.category-select').value;
+      post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/approve-with-category`, `category=${encodeURIComponent(category)}`);
+    });
+
+    card.querySelector('[data-action="reject"]').addEventListener('click', function () {
+      if (!confirm(`Отклонить тег "${tag}"?`)) return;
+      post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/reject`);
+    });
+  });
+})();
+</script>
+{% endblock %}

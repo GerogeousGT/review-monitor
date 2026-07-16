@@ -13,8 +13,12 @@ from core.db import (
     update_review_sentiment,
     insert_review_tag,
     insert_tag_if_new,
+    get_tags_pending_notification,
+    mark_tag_notified,
+    get_location_name,
 )
 from agents.sentiment_analyst import analyze_review, compute_reply_deadline
+from agents.notifier import send_message, format_new_tag_approval_message
 
 ZONE_CATEGORIES = {"зона клуба", "подразделение"}
 
@@ -91,7 +95,7 @@ def main():
                 category = aspect.get("category")
                 if category not in known_categories:
                     category = "не определено"
-                insert_tag_if_new(conn, tag, category)
+                insert_tag_if_new(conn, tag, category, aspect.get("tag_evidence", ""), review["id"])
             zone = aspect.get("zone")
             zone = zone.strip().lower() if zone else None
             zone = _normalize_zone(zone, known_zones)
@@ -99,6 +103,25 @@ def main():
 
         tags_str = ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", []))
         print(f"[review {review['id']}] {result['sentiment']} ({result['sentiment_score']}/10) — {tags_str or 'без тем'}")
+
+    # Approval новых тегов (см. PLAN.md) — текстовое уведомление БЕЗ кнопок,
+    # само решение принимается в дашборде (webapp), не в Telegram — выбор
+    # категории кнопками упирается в лимит callback_data (64 байта), см.
+    # agents/notifier.py: format_new_tag_approval_message. Одно сообщение на
+    # тег. location_name для читаемости — вся конфигурация одноклиентная
+    # (одна точка на конфиг), берём первую попавшуюся.
+    pending = get_tags_pending_notification(conn)
+    if pending:
+        first_location = cfg["client"]["locations"][0]["id"]
+        location_name = get_location_name(conn, first_location)
+        for p in pending:
+            text = format_new_tag_approval_message(p, location_name)
+            try:
+                send_message(text)
+                mark_tag_notified(conn, p["tag"])
+            except Exception as e:
+                print(f"Не удалось отправить approval-уведомление на тег '{p['tag']}': {e}")
+        print(f"Отправлено approval-уведомлений: {len(pending)}")
 
     conn.close()
 

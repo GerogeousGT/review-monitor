@@ -62,6 +62,7 @@
 <div class="db-tabs">
   <a class="db-tab {% if active_tab == 'overview' %}active{% endif %}" href="{{ url_for('dashboard', slug=slug) }}">Обзор</a>
   <a class="db-tab {% if active_tab == 'reviews' %}active{% endif %}" href="{{ url_for('dashboard_reviews', slug=slug) }}">Лента отзывов</a>
+  <a class="db-tab {% if active_tab == 'tags' %}active{% endif %}" href="{{ url_for('dashboard_tags', slug=slug) }}">Словарь тегов{% if pending_count %} ({{ pending_count }}){% endif %}</a>
 </div>
 <div class="db-main">
   {% if no_data %}

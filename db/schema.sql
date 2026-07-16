@@ -65,7 +65,12 @@ CREATE TABLE tag_dictionary (
     tag TEXT PRIMARY KEY,
     category TEXT,
     description TEXT,
-    status TEXT DEFAULT 'active'         -- active | pending_review
+    status TEXT DEFAULT 'active',        -- active | pending_review
+    pending_evidence TEXT,               -- цитата из отзыва, породившая предложение тега
+                                          -- (см. PLAN.md "Approval новых тегов") — только
+                                          -- для status='pending_review', не нужна после approve
+    pending_review_id INTEGER,           -- review_id того же отзыва, для ссылки в Telegram-сообщении
+    pending_notified_at TEXT             -- когда отправлено уведомление на approval — не слать дважды
 );
 
 -- Настраиваемые пороги алертов (несколько окон на один тег)
