@@ -356,21 +356,35 @@ def dashboard_tags(slug: str):
     conn = core_db.get_connection(db_path=db_path)
     core_db.init_db(conn)
 
-    tags_by_category: dict[str, list[str]] = {}
+    category_descriptions = {c["category"]: c["description"] for c in core_db.get_category_dictionary(conn)}
+
+    # category -> {"description": ..., "tags": [{"tag":..., "description":...}, ...]}
+    tags_by_category: dict[str, dict] = {}
     for t in core_db.get_tag_dictionary(conn, active_only=True):
-        tags_by_category.setdefault(t["category"] or "без категории", []).append(t["tag"])
-    for tags in tags_by_category.values():
-        tags.sort()
+        cat = t["category"] or "без категории"
+        bucket = tags_by_category.setdefault(cat, {"description": category_descriptions.get(cat, ""), "tags": []})
+        bucket["tags"].append({"tag": t["tag"], "description": t["description"] or ""})
+    for bucket in tags_by_category.values():
+        bucket["tags"].sort(key=lambda t: t["tag"])
     tags_by_category = dict(sorted(tags_by_category.items()))
 
     all_categories = sorted(tags_by_category.keys())
+
     pending_tags = core_db.get_pending_tags(conn)
     for p in pending_tags:
         review_id = p.get("pending_review_id")
-        p["review_text"] = None
+        p["review"] = None
         if review_id:
-            row = conn.execute("SELECT text FROM reviews WHERE id=?", (review_id,)).fetchone()
-            p["review_text"] = row["text"] if row else None
+            row = conn.execute(
+                "SELECT id, author, rating, text, platform, review_date FROM reviews WHERE id=?", (review_id,)
+            ).fetchone()
+            if row:
+                review = dict(row)
+                review["platform_label"] = PLATFORM_LABELS.get(review["platform"], review["platform"])
+                review["tags"] = core_db.get_review_tags(conn, review_id)
+                p["review"] = review
+
+    active_tags_flat = sorted({t["tag"] for cat in tags_by_category.values() for t in cat["tags"]})
 
     conn.close()
 
@@ -382,6 +396,7 @@ def dashboard_tags(slug: str):
         tags_by_category=tags_by_category,
         all_categories=all_categories,
         pending_tags=pending_tags,
+        active_tags_flat=active_tags_flat,
     )
 
 

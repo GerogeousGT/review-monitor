@@ -5,52 +5,77 @@
 <style>
   .tag-tree { display: flex; flex-direction: column; gap: 18px; margin-bottom: 40px; }
   .tag-category { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
-  .tag-category-name { font-weight: 700; font-size: 0.9375rem; margin-bottom: 10px; }
-  .tag-category-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  .tag-chip {
-    font-size: 0.8125rem; padding: 4px 11px; border-radius: 999px;
-    background: rgba(255,255,255,0.05); border: 1px solid var(--border);
-  }
+  .tag-category-name { font-weight: 700; font-size: 0.9375rem; }
+  .tag-category-desc { font-size: 0.8125rem; color: var(--text-dim); margin: 4px 0 12px; line-height: 1.4; }
+  .tag-category-tags { display: flex; flex-direction: column; gap: 6px; }
+  .tag-row { display: flex; align-items: baseline; gap: 8px; font-size: 0.8125rem; }
+  .tag-row .tag-name { font-weight: 700; padding: 2px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); white-space: nowrap; }
+  .tag-row .tag-desc { color: var(--text-dim); line-height: 1.4; }
 
   .pending-section h2 { margin-bottom: 4px; }
   .pending-note { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 18px; }
-  .pending-list { display: flex; flex-direction: column; gap: 14px; }
+  .pending-list { display: flex; flex-direction: column; gap: 20px; }
   .pending-card {
     background: var(--surface-2); border: 1px solid rgba(224,184,76,0.35); border-radius: 12px;
     padding: 16px 18px;
   }
-  .pending-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .pending-tag-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .pending-tag { font-weight: 700; font-size: 0.9375rem; }
   .pending-category { font-size: 0.8125rem; color: var(--text-dim); }
-  .pending-evidence {
-    font-size: 0.875rem; line-height: 1.5; padding: 10px 12px; margin-bottom: 12px;
-    background: rgba(255,255,255,0.03); border-radius: 8px; border-left: 3px solid var(--accent-2);
-  }
-  .pending-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .pending-actions button {
+  .pending-tag-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+  .pending-tag-actions button {
     font-size: 0.8125rem; padding: 6px 14px; border-radius: 8px; border: none;
     cursor: pointer; font-weight: 600;
   }
-  .pending-actions .approve { background: var(--accent); color: #0c1119; }
-  .pending-actions .reject { background: none; color: var(--danger); border: 1px solid rgba(234,94,110,0.35) !important; }
-  .pending-actions select {
+  .pending-tag-actions .approve { background: var(--accent); color: #0c1119; }
+  .pending-tag-actions .reject { background: none; color: var(--danger); border: 1px solid rgba(234,94,110,0.35) !important; }
+  .pending-tag-actions select {
     font-size: 0.8125rem; padding: 5px 10px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
   }
-  .pending-actions .approve-category { background: var(--accent-2); color: #0c1119; }
+  .pending-tag-actions .approve-category { background: var(--accent-2); color: #0c1119; }
+
+  .pending-no-review { color: var(--text-dim); font-size: 0.8125rem; font-style: italic; }
+
+  /* карточка отзыва — тот же вид, что на вкладке "Лента отзывов" */
+  .review-card { background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .review-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; color: var(--text-dim); flex-wrap: wrap; }
+  .review-head .stars { color: #e0b84c; }
+  .review-head .platform { font-weight: 600; color: var(--text); }
+  .review-text { font-size: 0.875rem; line-height: 1.5; margin-bottom: 10px; }
+  .review-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .review-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
+  .review-tag.positive { color: var(--accent); border-color: rgba(94,234,168,0.3); }
+  .review-tag.negative { color: var(--danger); border-color: rgba(234,94,110,0.3); }
+  .review-tag.new { border-color: #e0b84c; color: #e0b84c; }
+  .tag-edit-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.7rem; padding: 0; line-height: 1; }
+  .tag-edit-btn:hover { color: var(--text); }
+  .tag-edit-form { display: inline-flex; gap: 4px; align-items: center; }
+  .tag-edit-form select { font-size: 0.75rem; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+  .tag-edit-form button { font-size: 0.7rem; padding: 2px 8px; border-radius: 6px; border: none; background: var(--accent); color: #0c1119; cursor: pointer; font-weight: 700; }
+  .tag-edit-form .cancel { background: none; color: var(--text-dim); border: 1px solid var(--border); }
+  .tag-edit-form .delete { background: none; color: var(--danger); border: 1px solid rgba(234,94,110,0.3); }
+  .add-tag-btn { font-size: 0.75rem; padding: 3px 9px; border-radius: 999px; border: 1px dashed var(--border); background: none; color: var(--text-dim); cursor: pointer; }
+  .add-tag-btn:hover { color: var(--text); border-color: var(--text-dim); }
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 20px 0; }
 </style>
 
-<h2>Активные теги ({{ tags_by_category.values() | map('length') | sum }})</h2>
+<h2>Активные теги ({{ tags_by_category.values() | map(attribute='tags') | map('length') | sum }})</h2>
 {% if tags_by_category %}
 <div class="tag-tree">
-  {% for category, tags in tags_by_category.items() %}
+  {% for category, bucket in tags_by_category.items() %}
   <div class="tag-category">
-    <div class="tag-category-name">{{ category }} ({{ tags|length }})</div>
+    <div class="tag-category-name">{{ category }} ({{ bucket.tags|length }})</div>
+    {% if bucket.description %}
+    <div class="tag-category-desc">{{ bucket.description }}</div>
+    {% endif %}
     <div class="tag-category-tags">
-      {% for tag in tags %}
-      <span class="tag-chip">{{ tag }}</span>
+      {% for t in bucket.tags %}
+      <div class="tag-row">
+        <span class="tag-name">{{ t.tag }}</span>
+        {% if t.description %}<span class="tag-desc">— {{ t.description }}</span>{% endif %}
+      </div>
       {% endfor %}
     </div>
   </div>
@@ -62,28 +87,50 @@
 
 <div class="pending-section">
   <h2>Новые теги на утверждение{% if pending_tags %} ({{ pending_tags|length }}){% endif %}</h2>
-  <div class="pending-note">Модель предложила эти теги при разборе отзывов — ни один существующий тег не подошёл по смыслу. Утверди, утверди с другой категорией или отклони.</div>
+  <div class="pending-note">Модель предложила эти теги при разборе отзывов — ни один существующий тег не подошёл по смыслу. Отзыв показан целиком, со всеми его тегами — можно сразу поправить/добавить нужный, не переходя в ленту.</div>
   {% if pending_tags %}
   <div class="pending-list">
     {% for p in pending_tags %}
     <div class="pending-card" data-tag="{{ p.tag }}">
-      <div class="pending-head">
+      <div class="pending-tag-head">
         <span class="pending-tag">🆕 {{ p.tag }}</span>
         <span class="pending-category">→ категория: {{ p.category }}</span>
+        <div class="pending-tag-actions">
+          <button type="button" class="approve" data-action="approve">✅ Утвердить как есть</button>
+          <select class="category-select">
+            {% for c in all_categories %}
+            <option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+          </select>
+          <button type="button" class="approve-category" data-action="approve-category">Утвердить с этой категорией</button>
+          <button type="button" class="reject" data-action="reject">❌ Отклонить</button>
+        </div>
       </div>
-      {% if p.pending_evidence %}
-      <div class="pending-evidence">«{{ p.pending_evidence }}»</div>
-      {% endif %}
-      <div class="pending-actions">
-        <button type="button" class="approve" data-action="approve">✅ Утвердить как есть</button>
-        <select class="category-select">
-          {% for c in all_categories %}
-          <option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>
+
+      {% if p.review %}
+      {% set r = p.review %}
+      <div class="review-card" data-review-id="{{ r.id }}">
+        <div class="review-head">
+          <span class="stars">{{ '★' * (r.rating or 0) }}{{ '☆' * (5 - (r.rating or 0)) }}</span>
+          <span class="platform">{{ r.platform_label }}</span>
+          <span>{{ r.author or 'без имени' }}</span>
+          <span>&middot;</span>
+          <span>{{ r.review_date[:10] if r.review_date else '' }}</span>
+        </div>
+        <div class="review-text">{{ r.text or '(без текста)' }}</div>
+        <div class="review-tags">
+          {% for t in r.tags %}
+          <span class="review-tag {{ t.tag_sentiment }}{% if t.tag == p.tag %} new{% endif %}" data-tag-row-id="{{ t.id }}">
+            <span class="tag-label">{{ t.tag }}</span>
+            <button type="button" class="tag-edit-btn" title="Исправить тег">✎</button>
+          </span>
           {% endfor %}
-        </select>
-        <button type="button" class="approve-category" data-action="approve-category">Утвердить с этой категорией</button>
-        <button type="button" class="reject" data-action="reject">❌ Отклонить</button>
+          <button type="button" class="add-tag-btn" title="Добавить ещё тег на этот отзыв">+ тег</button>
+        </div>
       </div>
+      {% else %}
+      <div class="pending-no-review">Отзыв, из которого пришло предложение, не найден (мог быть создан до этой версии, без привязки).</div>
+      {% endif %}
     </div>
     {% endfor %}
   </div>
@@ -92,10 +139,29 @@
   {% endif %}
 </div>
 
+<template id="tag-edit-template">
+  <span class="tag-edit-form">
+    <select class="tag-select">
+      {% for tag in active_tags_flat %}
+      <option value="{{ tag }}">{{ tag }}</option>
+      {% endfor %}
+    </select>
+    <select class="sentiment-select">
+      <option value="positive">🟢 positive</option>
+      <option value="neutral">🟡 neutral</option>
+      <option value="negative">🔴 negative</option>
+    </select>
+    <button type="button" class="save">✓</button>
+    <button type="button" class="cancel">отмена</button>
+    <button type="button" class="delete" style="display:none" title="Удалить тег">🗑</button>
+  </span>
+</template>
+
 <script>
 (function () {
   const csrfSlug = {{ slug|tojson }};
 
+  // --- approval-действия на pending-теге ---
   document.querySelectorAll('.pending-card').forEach(function (card) {
     const tag = card.dataset.tag;
 
@@ -107,10 +173,7 @@
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
-          if (data.error) {
-            alert('Ошибка: ' + data.error);
-            return;
-          }
+          if (data.error) { alert('Ошибка: ' + data.error); return; }
           location.reload();
         })
         .catch(function () { alert('Не удалось выполнить действие — проверь соединение.'); });
@@ -119,15 +182,100 @@
     card.querySelector('[data-action="approve"]').addEventListener('click', function () {
       post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/approve`);
     });
-
     card.querySelector('[data-action="approve-category"]').addEventListener('click', function () {
       const category = card.querySelector('.category-select').value;
       post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/approve-with-category`, `category=${encodeURIComponent(category)}`);
     });
-
     card.querySelector('[data-action="reject"]').addEventListener('click', function () {
       if (!confirm(`Отклонить тег "${tag}"?`)) return;
       post(`/dashboard/${csrfSlug}/pending-tag/${encodeURIComponent(tag)}/reject`);
+    });
+  });
+
+  // --- редактирование тегов на вложенной карточке отзыва (как на ленте отзывов) ---
+  document.querySelectorAll('.tag-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const chip = btn.closest('.review-tag');
+      const label = chip.querySelector('.tag-label');
+      const currentTag = label.textContent.trim();
+      const currentSentiment = [...chip.classList].find(c => ['positive', 'neutral', 'negative'].includes(c));
+
+      const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+      const form = tpl.querySelector('.tag-edit-form');
+      form.querySelector('.tag-select').value = currentTag;
+      form.querySelector('.sentiment-select').value = currentSentiment || 'neutral';
+
+      chip.innerHTML = '';
+      chip.appendChild(form);
+
+      const tagRowId = chip.dataset.tagRowId;
+      const deleteBtn = form.querySelector('.delete');
+      deleteBtn.style.display = '';
+
+      form.querySelector('.cancel').addEventListener('click', function () { location.reload(); });
+
+      deleteBtn.addEventListener('click', function () {
+        if (!confirm('Удалить тег "' + currentTag + '" с этого отзыва?')) return;
+        fetch(`/dashboard/${csrfSlug}/tag/${tagRowId}/delete`, { method: 'POST' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) { alert('Ошибка: ' + data.error); return; }
+            location.reload();
+          })
+          .catch(function () { alert('Не удалось удалить — проверь соединение.'); });
+      });
+
+      form.querySelector('.save').addEventListener('click', function () {
+        const newTag = form.querySelector('.tag-select').value;
+        const newSentiment = form.querySelector('.sentiment-select').value;
+        fetch(`/dashboard/${csrfSlug}/tag/${tagRowId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) { alert('Ошибка: ' + data.error); return; }
+            location.reload();
+          })
+          .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+      });
+    });
+  });
+
+  document.querySelectorAll('.add-tag-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.dataset.active) return;
+      btn.dataset.active = '1';
+
+      const card = btn.closest('.review-card');
+      const reviewId = card.dataset.reviewId;
+
+      const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+      const form = tpl.querySelector('.tag-edit-form');
+      form.querySelector('.sentiment-select').value = 'negative';
+
+      btn.insertAdjacentElement('beforebegin', form);
+      btn.style.display = 'none';
+
+      function restore() { form.remove(); btn.style.display = ''; delete btn.dataset.active; }
+      form.querySelector('.cancel').addEventListener('click', restore);
+
+      form.querySelector('.save').addEventListener('click', function () {
+        const newTag = form.querySelector('.tag-select').value;
+        const newSentiment = form.querySelector('.sentiment-select').value;
+        fetch(`/dashboard/${csrfSlug}/review/${reviewId}/tag`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) { alert('Ошибка: ' + data.error); return; }
+            location.reload();
+          })
+          .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+      });
     });
   });
 })();
