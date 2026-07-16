@@ -35,7 +35,7 @@ CLIENTS_DIR = PROJECT_ROOT / "clients"
 sys.path.insert(0, str(PROJECT_ROOT))
 from core import db as core_db  # noqa: E402 — после sys.path.insert, так и задумано
 from core.config import load_config as core_load_config  # noqa: E402
-from agents.alert_engine import recompute_all, recompute_repeat_offenders  # noqa: E402
+from agents.alert_engine import recompute_all, recompute_repeat_offenders, recompute_zone_alerts  # noqa: E402
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEBAPP_SECRET_KEY", "dev-only-change-me")
@@ -215,7 +215,9 @@ def dashboard(slug: str):
     now = datetime.now(timezone.utc)
     since_month = (now - timedelta(days=30)).isoformat()
 
-    tag_alerts = [dict(a) for a in core_db.get_all_active_alerts(conn) if a["alert_type"] == "tag"]
+    all_active_alerts = core_db.get_all_active_alerts(conn)
+    tag_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "tag"]
+    zone_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "zone"]
     repeat_offender_alerts_raw = core_db.get_all_active_repeat_offender_alerts(conn)
     repeat_offender_alerts = []
     for a in repeat_offender_alerts_raw:
@@ -246,6 +248,7 @@ def dashboard(slug: str):
         overdue_recent=overdue_recent,
         overdue_stale=overdue_stale,
         tag_alerts=tag_alerts,
+        zone_alerts=zone_alerts,
         repeat_offender_alerts=repeat_offender_alerts,
         sentiment_counts=sentiment_counts,
         top_praised=top_praised,
@@ -401,12 +404,14 @@ def recompute_alerts_now(slug: str):
     core_db.init_db(conn)
 
     tag_changes = recompute_all(conn, cfg, core_db)
+    zone_changes = recompute_zone_alerts(conn, cfg, core_db)
     offender_changes = recompute_repeat_offenders(conn, cfg, core_db)
 
     conn.close()
     return jsonify({
         "ok": True,
         "tag_changes": len(tag_changes),
+        "zone_changes": len(zone_changes),
         "offender_changes": len(offender_changes),
     })
 
@@ -433,6 +438,9 @@ def alert_reviews_fragment(slug: str, alert_id: int):
         _, author, platform = alert["tag"].split(":", 2)
         reviews = core_db.get_reviews_for_repeat_offender(conn, author, platform, alert["location_id"], alert["window_matched"])
         title = f"{author} · {PLATFORM_LABELS.get(platform, platform)}"
+    elif alert["alert_type"] == "zone":
+        reviews = core_db.get_reviews_for_zone_alert(conn, alert["tag"], alert["location_id"], alert["window_matched"])
+        title = f"Зона: {alert['tag']}"
     else:
         reviews = core_db.get_reviews_for_tag_alert(conn, alert["tag"], alert["location_id"], alert["window_matched"])
         title = alert["tag"]

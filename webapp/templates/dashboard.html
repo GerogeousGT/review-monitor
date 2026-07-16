@@ -218,6 +218,23 @@
   {% endif %}
 </div>
 
+<div class="section" id="zone-alerts">
+  <h2>Открытые алерты по зонам</h2>
+  {% if zone_alerts %}
+  <div class="alert-list">
+    {% for a in zone_alerts %}
+    <div class="alert-item clickable" onclick="openAlertModal({{ a.id }}, 'Зона: {{ a.tag|e }}')">
+      <span class="severity-dot {{ a.severity }}"></span>
+      <span class="tag">{{ a.tag }}</span>
+      <span class="meta">{{ a.count_in_window }} разных жалоб за {{ a.window_matched }} дн.{% if a.status == 'acknowledged' %} · в работе{% endif %}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">Проблемных зон нет — негатив не концентрируется в одном месте.</div>
+  {% endif %}
+</div>
+
 <div class="section" id="overdue">
   <h2>Просрочки по SLA</h2>
   {% if overdue_recent or overdue_stale %}

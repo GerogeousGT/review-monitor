@@ -152,6 +152,55 @@ def recompute_all(conn, cfg, db) -> list[dict]:
     return changes
 
 
+def recompute_zone_alerts(conn, cfg, db) -> list[dict]:
+    """Зональный алерт (2026-07-16, см. PLAN.md "Tag + Zone, шаг 2") — "зона X
+    стабильно копит негатив независимо от темы" (тренажёрный зал получает то
+    жалобы на оборудование, то на персонал, то на чистоту — по отдельности ни
+    одна ТЕМА не набирает порог, но ЗОНА в целом проблемная, сигнал
+    супервайзеру зоны). Структурно — почти копия recompute_all для тегов, но
+    группировка по (zone, location_id) вместо (tag, location_id), и берётся
+    ТОЛЬКО burst-порог (30/90 дней из alert_rules.default) — chronic tiers не
+    переиспользуем: они откалиброваны под объём накопления по ТЕМЕ, а не по
+    ЗОНЕ, это разные по природе величины (см. PLAN.md, решение не копировать
+    пороги тегового алерта не глядя)."""
+    now = datetime.now(timezone.utc)
+    events = db.get_negative_zone_events(conn)
+    alert_rules_cfg = cfg["alert_rules"]
+
+    by_zone_location: dict[tuple[str, str], list[dict]] = {}
+    for e in events:
+        by_zone_location.setdefault((e["zone"], e["location_id"]), []).append(e)
+
+    changes = []
+    for (zone, location_id), zone_events in by_zone_location.items():
+        result = compute_burst_severity(zone_events, zone, alert_rules_cfg, now)
+        existing = db.get_active_alert(conn, zone, location_id, alert_type="zone")
+
+        if result["severity"] == "green":
+            if existing:
+                db.resolve_alert(conn, existing["id"])
+                changes.append({"zone": zone, "location_id": location_id, "action": "resolved_auto", **result})
+            continue
+
+        if existing is None:
+            db.create_alert(conn, zone, location_id, result["severity"], result["window_matched"], result["count_in_window"], alert_type="zone")
+            changes.append({"zone": zone, "location_id": location_id, "action": "opened", **result})
+        elif existing["severity"] != result["severity"] or existing["count_in_window"] != result["count_in_window"]:
+            db.update_alert_severity(conn, existing["id"], result["severity"], result["window_matched"], result["count_in_window"])
+            changes.append({"zone": zone, "location_id": location_id, "action": "updated", "previous_severity": existing["severity"], **result})
+
+    # "Осиротевшие" зональные алерты — тот же принцип, что у тег-алертов (см. recompute_all)
+    for alert in db.get_all_active_alerts(conn):
+        if alert["alert_type"] != "zone":
+            continue
+        if (alert["tag"], alert["location_id"]) in by_zone_location:
+            continue
+        db.resolve_alert(conn, alert["id"])
+        changes.append({"zone": alert["tag"], "location_id": alert["location_id"], "action": "resolved_auto", "severity": "green", "window_matched": None, "count_in_window": 0})
+
+    return changes
+
+
 def recompute_repeat_offenders(conn, cfg, db) -> list[dict]:
     """Аналог recompute_all, но для repeat offender: единый порог (не yellow/red),
     ключ (author, platform, location_id) вместо (tag, location_id). Авто-resolve —

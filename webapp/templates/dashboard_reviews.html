@@ -317,7 +317,7 @@
         if (data.error) {
           recomputeStatus.textContent = 'Ошибка: ' + data.error;
         } else {
-          recomputeStatus.textContent = `Готово: изменений в тег-алертах ${data.tag_changes}, в повторных негативщиках ${data.offender_changes}`;
+          recomputeStatus.textContent = `Готово: изменений в тег-алертах ${data.tag_changes}, в зональных ${data.zone_changes}, в повторных негативщиках ${data.offender_changes}`;
         }
         recomputeBtn.disabled = false;
       })

@@ -2,7 +2,7 @@
 по SLA ответы. Без LLM, без Telegram — только счёт и запись состояния; отправка
 уведомлений будет в Notifier (repeat offender — отдельно, см. main_repeat_offender_notify.py)."""
 from core import db
-from agents.alert_engine import recompute_all, recompute_repeat_offenders
+from agents.alert_engine import recompute_all, recompute_repeat_offenders, recompute_zone_alerts
 from core.config import load_config
 
 SEVERITY_ICON = {"yellow": "🟡", "red": "🔴", "resolved_auto": "🟢"}
@@ -25,6 +25,20 @@ def main():
                   f"({c['count_in_window']} за {c['window_matched']} дн.)")
         else:
             print(f"{icon} [{c['location_id']}] '{c['tag']}' — обновлён {c['previous_severity']} → {c['severity']} "
+                  f"({c['count_in_window']} за {c['window_matched']} дн.)")
+
+    zone_changes = recompute_zone_alerts(conn, cfg, db)
+    if zone_changes:
+        print("\nЗональные алерты:")
+    for c in zone_changes:
+        icon = SEVERITY_ICON.get(c["action"] if c["action"] == "resolved_auto" else c["severity"], "•")
+        if c["action"] == "resolved_auto":
+            print(f"{icon} [{c['location_id']}] зона '{c['zone']}' — закрыт (счёт вернулся в норму)")
+        elif c["action"] == "opened":
+            print(f"{icon} [{c['location_id']}] зона '{c['zone']}' — НОВЫЙ алерт {c['severity']} "
+                  f"({c['count_in_window']} за {c['window_matched']} дн.)")
+        else:
+            print(f"{icon} [{c['location_id']}] зона '{c['zone']}' — обновлён {c['previous_severity']} → {c['severity']} "
                   f"({c['count_in_window']} за {c['window_matched']} дн.)")
 
     offender_changes = recompute_repeat_offenders(conn, cfg, db)

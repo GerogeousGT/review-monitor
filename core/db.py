@@ -285,6 +285,20 @@ def get_negative_tag_events(conn: sqlite3.Connection) -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_negative_zone_events(conn: sqlite3.Connection) -> list[dict]:
+    """Аналог get_negative_tag_events, но группировка по zone (место), не tag
+    (тема) — зональный алерт ловит "зона X стабильно копит негатив независимо
+    от темы" (см. PLAN.md "Tag + Zone, шаг 2"). ЛЮБОЙ негативный тег с
+    непустым zone считается упоминанием этой зоны — конкретная тема здесь не
+    важна, важно место."""
+    rows = conn.execute(
+        """SELECT r.location_id, rt.zone, rt.review_id, r.review_date
+           FROM review_tags rt JOIN reviews r ON rt.review_id = r.id
+           WHERE rt.tag_sentiment = 'negative' AND rt.zone IS NOT NULL"""
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 _ANONYMOUS_AUTHOR_NAMES = {"anonymous review", "аноним", "анонимный отзыв"}
 
 
@@ -383,11 +397,13 @@ def get_review_sentiment_counts_since(conn: sqlite3.Connection, location_id: str
 # Алерты
 # ============================================================================
 
-def get_active_alert(conn: sqlite3.Connection, tag: str, location_id: str) -> sqlite3.Row | None:
-    """Один конкретный (тег, точка) — используется в Alert Engine при пересчёте."""
+def get_active_alert(conn: sqlite3.Connection, tag: str, location_id: str, alert_type: str = "tag") -> sqlite3.Row | None:
+    """Один конкретный (тег, точка) — используется в Alert Engine при пересчёте.
+    alert_type различает тег-алерт от зонального (см. create_alert) — тег
+    "бассейн" и зона "бассейн" не должны схлопнуться в одну запись."""
     return conn.execute(
-        "SELECT * FROM alerts WHERE tag=? AND location_id=? AND status != 'resolved'",
-        (tag, location_id),
+        "SELECT * FROM alerts WHERE tag=? AND location_id=? AND status != 'resolved' AND alert_type=?",
+        (tag, location_id, alert_type),
     ).fetchone()
 
 
@@ -417,12 +433,20 @@ def get_alert_by_id(conn: sqlite3.Connection, alert_id: int) -> sqlite3.Row | No
 
 
 def create_alert(
-    conn: sqlite3.Connection, tag: str, location_id: str, severity: str, window_matched: int, count_in_window: int
+    conn: sqlite3.Connection,
+    tag: str,
+    location_id: str,
+    severity: str,
+    window_matched: int,
+    count_in_window: int,
+    alert_type: str = "tag",
 ) -> None:
+    """alert_type='zone' — зональный алерт (см. PLAN.md "Tag + Zone, шаг 2"), ключ
+    зоны хранится в поле tag, тот же приём, что уже используется для repeat_offender."""
     conn.execute(
-        """INSERT INTO alerts (tag, location_id, severity, window_matched, count_in_window, first_triggered_at, status)
-           VALUES (?, ?, ?, ?, ?, ?, 'open')""",
-        (tag, location_id, severity, window_matched, count_in_window, now_iso()),
+        """INSERT INTO alerts (tag, location_id, severity, window_matched, count_in_window, first_triggered_at, status, alert_type)
+           VALUES (?, ?, ?, ?, ?, ?, 'open', ?)""",
+        (tag, location_id, severity, window_matched, count_in_window, now_iso(), alert_type),
     )
     conn.commit()
 
@@ -676,6 +700,30 @@ def get_reviews_for_tag_alert(conn: sqlite3.Connection, tag: str, location_id: s
            FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
            WHERE r.location_id = ? AND rt.tag = ? AND rt.tag_sentiment = 'negative' AND r.review_date IS NOT NULL""",
         (location_id, tag),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt >= cutoff:
+            result.append(dict(row))
+    result.sort(key=lambda r: r["review_date"], reverse=True)
+    return result
+
+
+def get_reviews_for_zone_alert(conn: sqlite3.Connection, zone: str, location_id: str, window_days: int) -> list[dict]:
+    """Drill-down для зонального алерта — та же логика, что get_reviews_for_tag_alert,
+    но фильтр по rt.zone, не rt.tag (см. PLAN.md "Tag + Zone, шаг 2")."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=window_days)
+    rows = conn.execute(
+        """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence, rt.tag
+           FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
+           WHERE r.location_id = ? AND rt.zone = ? AND rt.tag_sentiment = 'negative' AND r.review_date IS NOT NULL""",
+        (location_id, zone),
     ).fetchall()
 
     result = []

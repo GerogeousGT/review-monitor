@@ -16,6 +16,28 @@ from core.db import (
 )
 from agents.sentiment_analyst import analyze_review, compute_reply_deadline
 
+ZONE_CATEGORIES = {"зона клуба", "подразделение"}
+
+
+def _normalize_zone(zone: str | None, known_zones: set[str]) -> str | None:
+    """Сопоставляет свободный текст от модели с известным местом клуба — без
+    этого счётчик зонального алерта дробится на варианты написания одного и
+    того же места (найдено 2026-07-16: "женская раздевалка" вместо
+    "раздевалка" — 4 негативных упоминания на зону "раздевалка" не сложились
+    бы в одно число). Точное совпадение — самый частый случай. Иначе ищем
+    известную зону КАК ПОДСТРОКУ (модель обычно уточняет, а не сокращает —
+    "женская раздевалка" содержит "раздевалка", не наоборот). Без совпадения —
+    оставляем как есть, не выдумываем: это либо новое место, которого нет в
+    словаре тегов, либо формулировка, которую стоит разобрать вручную."""
+    if not zone:
+        return None
+    if zone in known_zones:
+        return zone
+    for known in known_zones:
+        if known in zone:
+            return known
+    return zone
+
 
 def main():
     cfg = load_config()
@@ -29,6 +51,7 @@ def main():
     category_dictionary = get_category_dictionary(conn)
     active_tags = {t["tag"] for t in tag_dictionary}
     known_categories = {c["category"] for c in category_dictionary}
+    known_zones = {t["tag"] for t in tag_dictionary if t["category"] in ZONE_CATEGORIES}
     reply_sla_hours = cfg["reply_sla_hours"]
 
     reviews = fetch_unanalyzed_reviews(conn)
@@ -71,6 +94,7 @@ def main():
                 insert_tag_if_new(conn, tag, category)
             zone = aspect.get("zone")
             zone = zone.strip().lower() if zone else None
+            zone = _normalize_zone(zone, known_zones)
             insert_review_tag(conn, review["id"], tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""), zone)
 
         tags_str = ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", []))
