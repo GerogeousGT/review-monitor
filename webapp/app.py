@@ -281,7 +281,12 @@ def dashboard_reviews(slug: str):
         r["tags"] = core_db.get_review_tags(conn, r["id"])
         r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
 
-    active_tags = sorted(t["tag"] for t in core_db.get_tag_dictionary(conn, active_only=True))
+    tags_by_category: dict[str, list[str]] = {}
+    for t in core_db.get_tag_dictionary(conn, active_only=True):
+        tags_by_category.setdefault(t["category"] or "без категории", []).append(t["tag"])
+    for tags in tags_by_category.values():
+        tags.sort()
+    tags_by_category = dict(sorted(tags_by_category.items()))
 
     conn.close()
 
@@ -298,7 +303,7 @@ def dashboard_reviews(slug: str):
         total_pages=total_pages,
         platform_filter=platform or "",
         sentiment_filter=sentiment or "",
-        active_tags=active_tags,
+        tags_by_category=tags_by_category,
     )
 
 
@@ -328,6 +333,35 @@ def update_tag(slug: str, tag_row_id: int):
         return jsonify({"error": f"Тег '{new_tag}' не в активном словаре клиента"}), 400
 
     core_db.update_review_tag(conn, tag_row_id, new_tag, new_sentiment)
+    conn.close()
+    return jsonify({"ok": True, "tag": new_tag, "tag_sentiment": new_sentiment})
+
+
+@app.route("/dashboard/<slug>/review/<int:review_id>/tag", methods=["POST"])
+@login_required
+def add_tag(slug: str, review_id: int):
+    """Добавить ДОПОЛНИТЕЛЬНЫЙ тег на отзыв (2026-07-16) — отзыв часто затрагивает
+    несколько тем, а модель пропустила одну из них. Отличие от update_tag: не
+    правит существующую строку, а вставляет новую — тег+тональность СТРОГО из
+    активного словаря (та же валидация, что и в update_tag)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    new_tag = (request.form.get("tag") or "").strip().lower()
+    new_sentiment = request.form.get("tag_sentiment")
+    if new_sentiment not in ("positive", "neutral", "negative"):
+        return jsonify({"error": "Некорректная тональность"}), 400
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    active_tags = {t["tag"] for t in core_db.get_tag_dictionary(conn, active_only=True)}
+    if new_tag not in active_tags:
+        conn.close()
+        return jsonify({"error": f"Тег '{new_tag}' не в активном словаре клиента"}), 400
+
+    core_db.insert_review_tag(conn, review_id, new_tag, new_sentiment, "добавлено вручную")
     conn.close()
     return jsonify({"ok": True, "tag": new_tag, "tag_sentiment": new_sentiment})
 

@@ -105,6 +105,12 @@
     background: var(--accent); color: #0c1119; cursor: pointer; font-weight: 700;
   }
   .tag-edit-form .cancel { background: none; color: var(--text-dim); border: 1px solid var(--border); }
+
+  .add-tag-btn {
+    font-size: 0.75rem; padding: 3px 9px; border-radius: 999px;
+    border: 1px dashed var(--border); background: none; color: var(--text-dim); cursor: pointer;
+  }
+  .add-tag-btn:hover { color: var(--text); border-color: var(--text-dim); }
 </style>
 
 <div class="toolbar">
@@ -132,7 +138,7 @@
 {% if reviews %}
 <div class="review-list">
   {% for r in reviews %}
-  <div class="review-card">
+  <div class="review-card" data-review-id="{{ r.id }}">
     <div class="review-head">
       <span class="stars">{{ '★' * (r.rating or 0) }}{{ '☆' * (5 - (r.rating or 0)) }}</span>
       <span class="platform">{{ r.platform_label }}</span>
@@ -143,7 +149,6 @@
       <span>{{ {'positive': '🟢', 'neutral': '🟡', 'negative': '🔴'}.get(r.sentiment, '') }} {{ r.sentiment or '' }}</span>
     </div>
     <div class="review-text">{{ r.text or '(без текста)' }}</div>
-    {% if r.tags %}
     <div class="review-tags">
       {% for t in r.tags %}
       <span class="review-tag {{ t.tag_sentiment }}" data-tag-row-id="{{ t.id }}">
@@ -151,8 +156,8 @@
         <button type="button" class="tag-edit-btn" title="Исправить тег">✎</button>
       </span>
       {% endfor %}
+      <button type="button" class="add-tag-btn" title="Добавить ещё тег на этот отзыв">+ тег</button>
     </div>
-    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -173,8 +178,12 @@
 <template id="tag-edit-template">
   <span class="tag-edit-form">
     <select class="tag-select">
-      {% for tag in active_tags %}
-      <option value="{{ tag }}">{{ tag }}</option>
+      {% for category, tags in tags_by_category.items() %}
+      <optgroup label="{{ category }}">
+        {% for tag in tags %}
+        <option value="{{ tag }}">{{ tag }}</option>
+        {% endfor %}
+      </optgroup>
       {% endfor %}
     </select>
     <select class="sentiment-select">
@@ -216,6 +225,51 @@
         const tagRowId = chip.dataset.tagRowId;
 
         fetch(`/dashboard/${csrfSlug}/tag/${tagRowId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) {
+              alert('Ошибка: ' + data.error);
+              return;
+            }
+            location.reload();
+          })
+          .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+      });
+    });
+  });
+
+  document.querySelectorAll('.add-tag-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (btn.dataset.active) return; // уже открыта форма на этой кнопке
+      btn.dataset.active = '1';
+
+      const card = btn.closest('.review-card');
+      const reviewId = card.dataset.reviewId;
+
+      const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+      const form = tpl.querySelector('.tag-edit-form');
+      form.querySelector('.sentiment-select').value = 'negative';
+
+      btn.insertAdjacentElement('beforebegin', form);
+      btn.style.display = 'none';
+
+      function restore() {
+        form.remove();
+        btn.style.display = '';
+        delete btn.dataset.active;
+      }
+
+      form.querySelector('.cancel').addEventListener('click', restore);
+
+      form.querySelector('.save').addEventListener('click', function () {
+        const newTag = form.querySelector('.tag-select').value;
+        const newSentiment = form.querySelector('.sentiment-select').value;
+
+        fetch(`/dashboard/${csrfSlug}/review/${reviewId}/tag`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
