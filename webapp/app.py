@@ -34,6 +34,8 @@ CLIENTS_DIR = PROJECT_ROOT / "clients"
 
 sys.path.insert(0, str(PROJECT_ROOT))
 from core import db as core_db  # noqa: E402 — после sys.path.insert, так и задумано
+from core.config import load_config as core_load_config  # noqa: E402
+from agents.alert_engine import recompute_all, recompute_repeat_offenders  # noqa: E402
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("WEBAPP_SECRET_KEY", "dev-only-change-me")
@@ -279,6 +281,8 @@ def dashboard_reviews(slug: str):
         r["tags"] = core_db.get_review_tags(conn, r["id"])
         r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
 
+    active_tags = sorted(t["tag"] for t in core_db.get_tag_dictionary(conn, active_only=True))
+
     conn.close()
 
     total_pages = max(1, (total + limit - 1) // limit)
@@ -294,7 +298,66 @@ def dashboard_reviews(slug: str):
         total_pages=total_pages,
         platform_filter=platform or "",
         sentiment_filter=sentiment or "",
+        active_tags=active_tags,
     )
+
+
+@app.route("/dashboard/<slug>/tag/<int:tag_row_id>", methods=["POST"])
+@login_required
+def update_tag(slug: str, tag_row_id: int):
+    """Ручная коррекция тега на конкретном отзыве (2026-07-16) — владелец процесса
+    видит, что модель ошиблась (например Wi-Fi-отзыв: "информирование" вместо
+    "wifi", см. CHANGELOG 2026-07-16), и правит на месте. new_tag выбирается СТРОГО
+    из активного словаря клиента (валидируется здесь) — это НЕ путь для добавления
+    новых тегов мимо approval-флоу (см. PLAN.md "Approval новых тегов")."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    new_tag = (request.form.get("tag") or "").strip().lower()
+    new_sentiment = request.form.get("tag_sentiment")
+    if new_sentiment not in ("positive", "neutral", "negative"):
+        return jsonify({"error": "Некорректная тональность"}), 400
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    active_tags = {t["tag"] for t in core_db.get_tag_dictionary(conn, active_only=True)}
+    if new_tag not in active_tags:
+        conn.close()
+        return jsonify({"error": f"Тег '{new_tag}' не в активном словаре клиента"}), 400
+
+    core_db.update_review_tag(conn, tag_row_id, new_tag, new_sentiment)
+    conn.close()
+    return jsonify({"ok": True, "tag": new_tag, "tag_sentiment": new_sentiment})
+
+
+@app.route("/dashboard/<slug>/recompute-alerts", methods=["POST"])
+@login_required
+def recompute_alerts_now(slug: str):
+    """Кнопка "Пересчитать алерты сейчас" (2026-07-16) — после массовой ручной
+    коррекции тегов не ждать планового main_alerts.py (раз в 6 часов, см. таймеры
+    в README), увидеть эффект сразу. Использует ТЕ ЖЕ чистые функции ядра
+    (agents.alert_engine), что и main_alerts.py — не дублирует логику."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    config_path = CLIENTS_DIR / slug / "client_config.yaml"
+    cfg = core_load_config(path=config_path)
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    tag_changes = recompute_all(conn, cfg, core_db)
+    offender_changes = recompute_repeat_offenders(conn, cfg, core_db)
+
+    conn.close()
+    return jsonify({
+        "ok": True,
+        "tag_changes": len(tag_changes),
+        "offender_changes": len(offender_changes),
+    })
 
 
 @app.route("/dashboard/<slug>/alert/<int:alert_id>/reviews")

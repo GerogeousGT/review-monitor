@@ -74,23 +74,60 @@
   .pagination .current { color: var(--text); font-weight: 700; }
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 40px 0; text-align: center; }
+
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 24px; }
+  .filters { margin-bottom: 0; }
+  #recompute-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+  #recompute-btn:disabled { opacity: 0.6; cursor: default; }
+  #recompute-status { font-size: 0.8125rem; color: var(--text-dim); margin-left: 10px; }
+
+  .review-tag { display: inline-flex; align-items: center; gap: 4px; }
+  .tag-edit-btn {
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 0.7rem; padding: 0; line-height: 1;
+  }
+  .tag-edit-btn:hover { color: var(--text); }
+  .tag-edit-form { display: inline-flex; gap: 4px; align-items: center; }
+  .tag-edit-form select {
+    font-size: 0.75rem; padding: 2px 6px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+  }
+  .tag-edit-form button {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 6px; border: none;
+    background: var(--accent); color: #0c1119; cursor: pointer; font-weight: 700;
+  }
+  .tag-edit-form .cancel { background: none; color: var(--text-dim); border: 1px solid var(--border); }
 </style>
 
-<form class="filters" method="GET">
-  <select name="platform">
-    <option value="">Все площадки</option>
-    {% for key, label in platform_labels.items() %}
-    <option value="{{ key }}" {% if platform_filter == key %}selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <select name="sentiment">
-    <option value="">Любая тональность</option>
-    <option value="positive" {% if sentiment_filter == 'positive' %}selected{% endif %}>🟢 Позитив</option>
-    <option value="neutral" {% if sentiment_filter == 'neutral' %}selected{% endif %}>🟡 Нейтрально</option>
-    <option value="negative" {% if sentiment_filter == 'negative' %}selected{% endif %}>🔴 Негатив</option>
-  </select>
-  <button type="submit">Применить</button>
-</form>
+<div class="toolbar">
+  <form class="filters" method="GET">
+    <select name="platform">
+      <option value="">Все площадки</option>
+      {% for key, label in platform_labels.items() %}
+      <option value="{{ key }}" {% if platform_filter == key %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="sentiment">
+      <option value="">Любая тональность</option>
+      <option value="positive" {% if sentiment_filter == 'positive' %}selected{% endif %}>🟢 Позитив</option>
+      <option value="neutral" {% if sentiment_filter == 'neutral' %}selected{% endif %}>🟡 Нейтрально</option>
+      <option value="negative" {% if sentiment_filter == 'negative' %}selected{% endif %}>🔴 Негатив</option>
+    </select>
+    <button type="submit">Применить</button>
+  </form>
+  <div>
+    <button id="recompute-btn" type="button">Пересчитать алерты сейчас</button>
+    <span id="recompute-status"></span>
+  </div>
+</div>
 
 {% if reviews %}
 <div class="review-list">
@@ -109,7 +146,10 @@
     {% if r.tags %}
     <div class="review-tags">
       {% for t in r.tags %}
-      <span class="review-tag {{ t.tag_sentiment }}">{{ t.tag }}</span>
+      <span class="review-tag {{ t.tag_sentiment }}" data-tag-row-id="{{ t.id }}">
+        <span class="tag-label">{{ t.tag }}</span>
+        <button type="button" class="tag-edit-btn" title="Исправить тег">✎</button>
+      </span>
       {% endfor %}
     </div>
     {% endif %}
@@ -129,4 +169,90 @@
 {% else %}
 <div class="empty-note">Отзывов под этот фильтр не найдено.</div>
 {% endif %}
+
+<template id="tag-edit-template">
+  <span class="tag-edit-form">
+    <select class="tag-select">
+      {% for tag in active_tags %}
+      <option value="{{ tag }}">{{ tag }}</option>
+      {% endfor %}
+    </select>
+    <select class="sentiment-select">
+      <option value="positive">🟢 positive</option>
+      <option value="neutral">🟡 neutral</option>
+      <option value="negative">🔴 negative</option>
+    </select>
+    <button type="button" class="save">✓</button>
+    <button type="button" class="cancel">✕</button>
+  </span>
+</template>
+
+<script>
+(function () {
+  const csrfSlug = {{ slug|tojson }};
+
+  document.querySelectorAll('.tag-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const chip = btn.closest('.review-tag');
+      const label = chip.querySelector('.tag-label');
+      const currentTag = label.textContent.trim();
+      const currentSentiment = [...chip.classList].find(c => ['positive', 'neutral', 'negative'].includes(c));
+
+      const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+      const form = tpl.querySelector('.tag-edit-form');
+      form.querySelector('.tag-select').value = currentTag;
+      form.querySelector('.sentiment-select').value = currentSentiment || 'neutral';
+
+      chip.innerHTML = '';
+      chip.appendChild(form);
+
+      form.querySelector('.cancel').addEventListener('click', function () {
+        location.reload();
+      });
+
+      form.querySelector('.save').addEventListener('click', function () {
+        const newTag = form.querySelector('.tag-select').value;
+        const newSentiment = form.querySelector('.sentiment-select').value;
+        const tagRowId = chip.dataset.tagRowId;
+
+        fetch(`/dashboard/${csrfSlug}/tag/${tagRowId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.error) {
+              alert('Ошибка: ' + data.error);
+              return;
+            }
+            location.reload();
+          })
+          .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+      });
+    });
+  });
+
+  const recomputeBtn = document.getElementById('recompute-btn');
+  const recomputeStatus = document.getElementById('recompute-status');
+  recomputeBtn.addEventListener('click', function () {
+    recomputeBtn.disabled = true;
+    recomputeStatus.textContent = 'Пересчитываю...';
+    fetch(`/dashboard/${csrfSlug}/recompute-alerts`, { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          recomputeStatus.textContent = 'Ошибка: ' + data.error;
+        } else {
+          recomputeStatus.textContent = `Готово: изменений в тег-алертах ${data.tag_changes}, в повторных негативщиках ${data.offender_changes}`;
+        }
+        recomputeBtn.disabled = false;
+      })
+      .catch(function () {
+        recomputeStatus.textContent = 'Не удалось пересчитать — проверь соединение.';
+        recomputeBtn.disabled = false;
+      });
+  });
+})();
+</script>
 {% endblock %}

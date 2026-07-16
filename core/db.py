@@ -248,9 +248,22 @@ def insert_review_tag(
 
 def get_review_tags(conn: sqlite3.Connection, review_id: int) -> list[dict]:
     rows = conn.execute(
-        "SELECT tag, tag_sentiment, tag_evidence, zone FROM review_tags WHERE review_id=?", (review_id,)
+        "SELECT id, tag, tag_sentiment, tag_evidence, zone FROM review_tags WHERE review_id=?", (review_id,)
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def update_review_tag(conn: sqlite3.Connection, tag_row_id: int, new_tag: str, new_sentiment: str) -> None:
+    """Ручная коррекция конкретной строки review_tags (по её собственному id, не по
+    (review_id, tag) — один отзыв может законно иметь один и тот же тег несколько раз
+    на разные цитаты, см. CHANGELOG 2026-07-16 review 84, править нужно ровно одну).
+    Не трогает tag_dictionary — new_tag должен быть выбран из уже активного словаря
+    клиента на стороне вызывающего кода (webapp), это НЕ путь для добавления новых тегов."""
+    conn.execute(
+        "UPDATE review_tags SET tag=?, tag_sentiment=? WHERE id=?",
+        (new_tag, new_sentiment, tag_row_id),
+    )
+    conn.commit()
 
 
 def get_negative_tag_events(conn: sqlite3.Connection) -> list[dict]:
