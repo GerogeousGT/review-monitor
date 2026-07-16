@@ -3,24 +3,77 @@
 {% set active_tab = 'tags' %}
 {% block dashboard_content %}
 <style>
-  .tag-tree { display: flex; flex-direction: column; gap: 18px; margin-bottom: 40px; }
-  .tag-category { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
-  .tag-category-name { font-weight: 700; font-size: 0.9375rem; }
-  .tag-category-desc { font-size: 0.8125rem; color: var(--text-dim); margin: 4px 0 12px; line-height: 1.4; }
-  .tag-category-tags { display: flex; flex-direction: column; gap: 6px; }
-  .tag-row { display: flex; align-items: baseline; gap: 8px; font-size: 0.8125rem; }
-  .tag-row .tag-name { font-weight: 700; padding: 2px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); white-space: nowrap; }
-  .tag-row .tag-desc { color: var(--text-dim); line-height: 1.4; }
+  h2 { font-size: 1.0625rem; letter-spacing: -0.01em; margin-bottom: 14px; }
 
-  .pending-section h2 { margin-bottom: 4px; }
-  .pending-note { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 18px; }
-  .pending-list { display: flex; flex-direction: column; gap: 20px; }
+  .tag-tree { display: flex; flex-direction: column; gap: 10px; margin-bottom: 44px; }
+
+  .tag-category {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .tag-category-toggle {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 13px 18px; cursor: pointer;
+    background: none; border: none; color: inherit; text-align: left; font: inherit;
+  }
+  .tag-category-toggle:hover { background: rgba(255,255,255,0.02); }
+  .tag-category-chevron {
+    color: var(--text-dim); font-size: 0.75rem;
+    transition: transform 0.15s ease; flex-shrink: 0;
+  }
+  .tag-category.open .tag-category-chevron { transform: rotate(90deg); }
+  .tag-category-name {
+    font-weight: 700; font-size: 0.9375rem;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .tag-category-count {
+    color: var(--text-dim); font-weight: 500; font-variant-numeric: tabular-nums;
+    margin-left: auto; font-size: 0.8125rem;
+  }
+
+  .tag-category-body { display: none; padding: 0 18px 16px; }
+  .tag-category.open .tag-category-body { display: block; }
+
+  .tag-category-desc {
+    font-size: 0.8125rem; color: var(--text-dim); line-height: 1.5;
+    margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+
+  .tag-table { width: 100%; border-collapse: collapse; }
+  .tag-table tr + tr td { border-top: 1px solid var(--border); }
+  .tag-table td { padding: 9px 0; vertical-align: top; font-size: 0.8125rem; line-height: 1.5; }
+  .tag-table td.tag-name-cell { width: 1%; white-space: nowrap; padding-right: 18px; }
+  .tag-table .tag-name {
+    display: inline-block; font-weight: 700; font-size: 0.8125rem;
+    padding: 3px 10px; border-radius: 999px;
+    background: rgba(94,160,234,0.1); border: 1px solid rgba(94,160,234,0.25);
+    color: #a7c8f5;
+  }
+  .tag-table .tag-desc { color: var(--text-dim); }
+  .tag-table .tag-desc.empty { font-style: italic; opacity: 0.6; }
+
+  .pending-section { margin-top: 8px; }
+  .pending-section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .pending-section-head h2 { margin-bottom: 0; }
+  .pending-count-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px;
+    background: #e0b84c; color: #0c1119; font-weight: 800; font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .pending-note { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 18px; line-height: 1.5; }
+  .pending-list { display: flex; flex-direction: column; gap: 22px; }
   .pending-card {
-    background: var(--surface-2); border: 1px solid rgba(224,184,76,0.35); border-radius: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid #e0b84c;
+    border-radius: 4px 12px 12px 4px;
     padding: 16px 18px;
   }
-  .pending-tag-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-  .pending-tag { font-weight: 700; font-size: 0.9375rem; }
+  .pending-tag-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .pending-tag { font-weight: 800; font-size: 1.0625rem; letter-spacing: -0.01em; }
   .pending-category { font-size: 0.8125rem; color: var(--text-dim); }
   .pending-tag-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
   .pending-tag-actions button {
@@ -66,17 +119,23 @@
 <div class="tag-tree">
   {% for category, bucket in tags_by_category.items() %}
   <div class="tag-category">
-    <div class="tag-category-name">{{ category }} ({{ bucket.tags|length }})</div>
-    {% if bucket.description %}
-    <div class="tag-category-desc">{{ bucket.description }}</div>
-    {% endif %}
-    <div class="tag-category-tags">
-      {% for t in bucket.tags %}
-      <div class="tag-row">
-        <span class="tag-name">{{ t.tag }}</span>
-        {% if t.description %}<span class="tag-desc">— {{ t.description }}</span>{% endif %}
-      </div>
-      {% endfor %}
+    <button type="button" class="tag-category-toggle">
+      <span class="tag-category-chevron">▸</span>
+      <span class="tag-category-name">{{ category }}</span>
+      <span class="tag-category-count">{{ bucket.tags|length }}</span>
+    </button>
+    <div class="tag-category-body">
+      {% if bucket.description %}
+      <div class="tag-category-desc">{{ bucket.description }}</div>
+      {% endif %}
+      <table class="tag-table">
+        {% for t in bucket.tags %}
+        <tr>
+          <td class="tag-name-cell"><span class="tag-name">{{ t.tag }}</span></td>
+          <td class="tag-desc{% if not t.description %} empty{% endif %}">{{ t.description or 'без описания' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
     </div>
   </div>
   {% endfor %}
@@ -86,7 +145,10 @@
 {% endif %}
 
 <div class="pending-section">
-  <h2>Новые теги на утверждение{% if pending_tags %} ({{ pending_tags|length }}){% endif %}</h2>
+  <div class="pending-section-head">
+    <h2>Новые теги на утверждение</h2>
+    {% if pending_tags %}<span class="pending-count-badge">{{ pending_tags|length }}</span>{% endif %}
+  </div>
   <div class="pending-note">Модель предложила эти теги при разборе отзывов — ни один существующий тег не подошёл по смыслу. Отзыв показан целиком, со всеми его тегами — можно сразу поправить/добавить нужный, не переходя в ленту.</div>
   {% if pending_tags %}
   <div class="pending-list">
@@ -160,6 +222,15 @@
 <script>
 (function () {
   const csrfSlug = {{ slug|tojson }};
+
+  // --- сворачивание/разворачивание категорий тегов (первая открыта по умолчанию,
+  // чтобы страница не выглядела пустой при первом заходе) ---
+  document.querySelectorAll('.tag-category').forEach(function (cat, i) {
+    if (i === 0) cat.classList.add('open');
+    cat.querySelector('.tag-category-toggle').addEventListener('click', function () {
+      cat.classList.toggle('open');
+    });
+  });
 
   // --- approval-действия на pending-теге ---
   document.querySelectorAll('.pending-card').forEach(function (card) {
