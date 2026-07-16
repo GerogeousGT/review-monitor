@@ -683,11 +683,32 @@ def get_reviews_paginated(
     return [dict(row) for row in rows], total
 
 
+def _dedupe_reviews_by_id(rows) -> list[dict]:
+    """Один отзыв может дать НЕСКОЛЬКО строк review_tags под одним тегом/зоной, если
+    в тексте несколько отдельных цитат на одну тему (например 3 разных фразы про
+    возврат денег — см. CHANGELOG 2026-07-16, review 191). SELECT DISTINCT по всей
+    строке этого не схлопывает — tag_evidence разный, значит и строки разные.
+    Здесь схлопываем по r.id вручную, собирая все цитаты в один список."""
+    by_id: dict[int, dict] = {}
+    for row in rows:
+        r = dict(row)
+        review_id = r["id"]
+        evidence = r.pop("tag_evidence", None)
+        if review_id not in by_id:
+            r["tag_evidences"] = [evidence] if evidence else []
+            by_id[review_id] = r
+        elif evidence:
+            by_id[review_id]["tag_evidences"].append(evidence)
+    return list(by_id.values())
+
+
 def get_reviews_for_tag_alert(conn: sqlite3.Connection, tag: str, location_id: str, window_days: int) -> list[dict]:
     """Drill-down "алерт → сырые отзывы": те же негативные отзывы с этим тегом за
     window_days, что и увидел бы recompute_all при пересчёте severity (alert_engine
     хранит только агрегированный счётчик, не конкретные review_id — пересчитываем
     заново на актуальный момент, а не замораживаем список на момент срабатывания).
+    Один отзыв — одна карточка, даже если тег стоит на нескольких цитатах (см.
+    _dedupe_reviews_by_id).
 
     Фильтрация окна — в Python через parse_review_date, НЕ строковым сравнением в SQL
     (review_date >= ?): формат даты отличается между площадками (Z-суффикс/+03:00/
@@ -696,20 +717,20 @@ def get_reviews_for_tag_alert(conn: sqlite3.Connection, tag: str, location_id: s
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=window_days)
     rows = conn.execute(
-        """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence
+        """SELECT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence
            FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
            WHERE r.location_id = ? AND rt.tag = ? AND rt.tag_sentiment = 'negative' AND r.review_date IS NOT NULL""",
         (location_id, tag),
     ).fetchall()
 
     result = []
-    for row in rows:
+    for row in _dedupe_reviews_by_id(rows):
         try:
             dt = parse_review_date(row["review_date"])
         except (ValueError, AttributeError):
             continue
         if dt >= cutoff:
-            result.append(dict(row))
+            result.append(row)
     result.sort(key=lambda r: r["review_date"], reverse=True)
     return result
 
@@ -720,20 +741,20 @@ def get_reviews_for_zone_alert(conn: sqlite3.Connection, zone: str, location_id:
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=window_days)
     rows = conn.execute(
-        """SELECT DISTINCT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence, rt.tag
+        """SELECT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence, rt.tag
            FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
            WHERE r.location_id = ? AND rt.zone = ? AND rt.tag_sentiment = 'negative' AND r.review_date IS NOT NULL""",
         (location_id, zone),
     ).fetchall()
 
     result = []
-    for row in rows:
+    for row in _dedupe_reviews_by_id(rows):
         try:
             dt = parse_review_date(row["review_date"])
         except (ValueError, AttributeError):
             continue
         if dt >= cutoff:
-            result.append(dict(row))
+            result.append(row)
     result.sort(key=lambda r: r["review_date"], reverse=True)
     return result
 
