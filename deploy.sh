@@ -22,6 +22,8 @@ ssh "$REMOTE_HOST" "cd '$REMOTE_DIR' && \
   git pull origin master && \
   echo '--- requirements.txt ---' && \
   .venv/bin/pip install -q -r requirements.txt && \
+  echo '--- webapp/requirements.txt (отдельный venv, см. CHANGELOG 2026-07-16) ---' && \
+  webapp/.venv/bin/pip install -q -r webapp/requirements.txt && \
   echo '--- pytest ---' && \
   CLIENT_SLUG=worldclass .venv/bin/python -m pytest tests/ -x -q && \
   echo '--- рестарт webapp ---' && \
