@@ -48,7 +48,7 @@ def send_message(text: str, reply_markup: dict | None = None) -> None:
 
 def repeat_offender_ack_keyboard(alert_id: int) -> dict:
     """callback_data несёт alert_id напрямую — не нужен отдельный маппинг
-    сообщение->алерт, main_repeat_offender_poll.py читает его прямо из callback_query."""
+    сообщение->алерт, webapp/app.py: telegram_webhook читает его прямо из callback_query."""
     return {"inline_keyboard": [[{"text": "✅ Связался с клиентом", "callback_data": f"ro_ack:{alert_id}"}]]}
 
 

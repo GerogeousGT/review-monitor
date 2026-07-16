@@ -107,7 +107,7 @@ APIFY_API_TOKEN=...      # console.apify.com → Settings → Integrations, ну
 Раз в день (`digest_time` в конфиге, systemd timer) — `main_digest.py` и `main_watchdog.py`.
 Раз в неделю — `main_weekly_stale.py` (просрочки 90-180 дней, см. `watchdog_recent_days`/`watchdog_stale_cutoff_days` в конфиге) и `main_weekly_summary.py` (итоги для руководителя: объём неделя/месяц, топ хвалимого/ругаемого за месяц, системный негатив = активные алерты, просрочки за неделю — понедельник утром).
 Раз в `renotify_after_days` (конфиг, обычно раз в 2 дня) — `main_repeat_offender_notify.py` (напоминание по открытым repeat-offender алертам с кнопкой "Связался", молчит для acknowledged).
-Каждые 5-15 минут — `main_repeat_offender_poll.py` (ловит нажатие кнопки через Telegram `getUpdates`; polling, не webhook — см. PLAN.md).
+Нажатие кнопки "Связался" обрабатывается webhook'ом (`webapp/app.py: POST /telegram/webhook/<slug>`, реализовано 2026-07-16 — заменяет прежний polling-скрипт, который так и не был развёрнут на VPS). Регистрация — `main_set_webhook.py`, вручную один раз на клиента после разворота бота.
 Пометить алерт "в работе" вручную (для тег-алертов, у repeat offender есть кнопка) — `main_ack.py`.
 Обёртка для всего цикла сразу: `./run_cycle.sh <client_slug>`.
 
