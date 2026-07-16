@@ -266,6 +266,14 @@ def update_review_tag(conn: sqlite3.Connection, tag_row_id: int, new_tag: str, n
     conn.commit()
 
 
+def delete_review_tag(conn: sqlite3.Connection, tag_row_id: int) -> None:
+    """Удалить конкретную строку review_tags (например, модель поставила тег,
+    которого в отзыве вообще нет — не путать с коррекцией, где тег заменяется
+    на другой). По id, та же логика, что и update_review_tag."""
+    conn.execute("DELETE FROM review_tags WHERE id=?", (tag_row_id,))
+    conn.commit()
+
+
 def get_negative_tag_events(conn: sqlite3.Connection) -> list[dict]:
     """Одна строка на (отзыв, тег) с негативной тональностью — основа для подсчёта окон.
     DISTINCT review_id учитывается на стороне alert_engine, не здесь."""

@@ -337,6 +337,23 @@ def update_tag(slug: str, tag_row_id: int):
     return jsonify({"ok": True, "tag": new_tag, "tag_sentiment": new_sentiment})
 
 
+@app.route("/dashboard/<slug>/tag/<int:tag_row_id>/delete", methods=["POST"])
+@login_required
+def delete_tag(slug: str, tag_row_id: int):
+    """Удалить тег с отзыва (2026-07-16) — модель поставила тег, которого в тексте
+    вообще нет, править не на что, нужно просто убрать. Отдельный роут от update_tag
+    (тот заменяет тег на другой, этот убирает без замены)."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return jsonify({"error": "Доступ запрещён"}), 403
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    core_db.delete_review_tag(conn, tag_row_id)
+    conn.close()
+    return jsonify({"ok": True})
+
+
 @app.route("/dashboard/<slug>/review/<int:review_id>/tag", methods=["POST"])
 @login_required
 def add_tag(slug: str, review_id: int):
