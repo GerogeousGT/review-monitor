@@ -10,7 +10,10 @@ CREATE TABLE location_platforms (
     location_id TEXT NOT NULL REFERENCES locations(id),
     platform TEXT NOT NULL,              -- 2gis | yandex_maps | zoon
     url TEXT NOT NULL,
-    last_seen_review_id TEXT,            -- курсор: докуда дособрали при прошлом опросе
+    last_seen_review_id TEXT,            -- пишется после каждого сбора, но пока не читается ни
+                                          -- одним коллектором (не курсор с ранним выходом — см.
+                                          -- README "Что делает", уточнено 2026-07-17); дедуп реально
+                                          -- держится на UNIQUE(platform, external_review_id) в reviews
     last_seen_review_date TEXT,
     last_checked_at TEXT
 );
@@ -31,7 +34,6 @@ CREATE TABLE reviews (
     sentiment_reasoning TEXT,
     urgency INTEGER DEFAULT 0,
     reply_status TEXT DEFAULT 'pending', -- pending | replied | ignored
-    reply_detected_at TEXT,
     reply_draft TEXT,
     reply_sla_deadline TEXT,
     UNIQUE(platform, external_review_id)
@@ -73,15 +75,6 @@ CREATE TABLE tag_dictionary (
     pending_notified_at TEXT             -- когда отправлено уведомление на approval — не слать дважды
 );
 
--- Настраиваемые пороги алертов (несколько окон на один тег)
-CREATE TABLE alert_rules (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tag TEXT NOT NULL,                   -- '*' = дефолт для всех тегов
-    window_days INTEGER NOT NULL,
-    yellow_at INTEGER NOT NULL,
-    red_at INTEGER NOT NULL
-);
-
 -- Персистентное состояние тревоги — не разовое уведомление, а живой статус
 CREATE TABLE alerts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,12 +89,4 @@ CREATE TABLE alerts (
     acknowledged_by TEXT,
     acknowledged_at TEXT,
     resolved_at TEXT
-);
-
--- Тон компании — загруженный документом или добытый из истории ответов
-CREATE TABLE tone_profile (
-    location_id TEXT PRIMARY KEY REFERENCES locations(id),
-    source TEXT NOT NULL,                -- document | mined
-    content TEXT,
-    updated_at TEXT
 );

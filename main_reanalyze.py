@@ -9,6 +9,11 @@
 отзывы не новые, повторная отправка карточек в Telegram была бы спамом (см. чек-лист
 --backfill в client_config.yaml, тот же принцип).
 
+Запись результата (тональность + теги + zone-нормализация + evidence для pending-
+тегов) идёт через main_analyze.persist_analysis() — общий код с main_analyze.py
+(исправлено 2026-07-17: раньше здесь была отдельная частичная копия без
+нормализации zone и без evidence/review_id для новых тегов, см. CHANGELOG).
+
 После переанализа — пересчитать алерты вручную: main_alerts.py.
 
 Использование:
@@ -19,18 +24,9 @@ import sys
 from core.llm_provider import RateLimitError
 
 from core.config import load_config, load_few_shot_examples
-from core.db import (
-    get_connection,
-    init_db,
-    seed_tag_dictionary,
-    seed_category_dictionary,
-    get_tag_dictionary,
-    get_category_dictionary,
-    update_review_sentiment,
-    insert_review_tag,
-    insert_tag_if_new,
-)
-from agents.sentiment_analyst import analyze_review, compute_reply_deadline
+from core.db import get_connection, init_db, seed_tag_dictionary, seed_category_dictionary, get_tag_dictionary, get_category_dictionary
+from agents.sentiment_analyst import analyze_review
+from main_analyze import persist_analysis, ZONE_CATEGORIES
 
 
 def main():
@@ -50,6 +46,7 @@ def main():
     category_dictionary = get_category_dictionary(conn)
     active_tags = {t["tag"] for t in tag_dictionary}
     known_categories = {c["category"] for c in category_dictionary}
+    known_zones = {t["tag"] for t in tag_dictionary if t["category"] in ZONE_CATEGORIES}
     reply_sla_hours = cfg["reply_sla_hours"]
 
     for review_id in review_ids:
@@ -65,39 +62,23 @@ def main():
 
         try:
             result = analyze_review(review["text"] or "", review["rating"], tag_dictionary, category_dictionary, few_shot_examples)
+            # Старые теги удаляются ПОСЛЕ успешного вызова LLM — сбой анализа не
+            # должен стирать существующую разметку отзыва без замены.
+            conn.execute("DELETE FROM review_tags WHERE review_id=?", (review_id,))
+            conn.commit()
+            new_str = persist_analysis(
+                conn, review_id, review["review_date"], result, reply_sla_hours,
+                active_tags, known_categories, known_zones,
+            )
         except RateLimitError as e:
             print(f"Лимит провайдера LLM исчерпан на review {review_id}: {e}")
             break
         except Exception as e:
+            # Ловит и сбой вызова LLM, и битый/неполный JSON от модели внутри
+            # persist_analysis — пропускаем отзыв, не роняем весь прогон.
             print(f"[review {review_id}] ОШИБКА анализа: {e}")
             continue
 
-        deadline = compute_reply_deadline(review["review_date"], result["sentiment"], reply_sla_hours)
-        update_review_sentiment(
-            conn,
-            review_id,
-            result["sentiment"],
-            result["sentiment_score"],
-            result["sentiment_reasoning"],
-            result["urgency"],
-            deadline,
-        )
-
-        conn.execute("DELETE FROM review_tags WHERE review_id=?", (review_id,))
-        conn.commit()
-
-        for aspect in result.get("aspects", []):
-            tag = aspect["tag"].strip().lower()
-            if tag not in active_tags:
-                category = aspect.get("category")
-                if category not in known_categories:
-                    category = "не определено"
-                insert_tag_if_new(conn, tag, category)
-            zone = aspect.get("zone")
-            zone = zone.strip().lower() if zone else None
-            insert_review_tag(conn, review_id, tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""), zone)
-
-        new_str = ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", [])) or "без тем"
         print(f"[review {review_id}] БЫЛО: {old_str}")
         print(f"[review {review_id}] СТАЛО: {new_str}")
         print()

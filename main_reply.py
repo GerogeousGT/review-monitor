@@ -31,13 +31,16 @@ def main():
 
         try:
             result = draft_reply(dict(review), tags, tone_guide, alert_context)
+            db.update_reply_draft(
+                conn, review["id"], result["review_type"], result["reply_draft"], result.get("internal_note")
+            )
         except Exception as e:
+            # Ловит и сбой вызова LLM, и битый/неполный JSON от модели (например
+            # отсутствующий ключ "review_type") — оба случая пропускают отзыв,
+            # не роняя весь прогон (тот же принцип, что в main_analyze.py).
             print(f"[review {review['id']}] ОШИБКА: {e}")
             continue
 
-        db.update_reply_draft(
-            conn, review["id"], result["review_type"], result["reply_draft"], result.get("internal_note")
-        )
         flag = " ⚠️ ТРЕБУЕТ ПРОВЕРКИ" if result["review_type"] == "требует_проверки" else ""
         print(f"[review {review['id']}] {result['review_type']}{flag}")
 

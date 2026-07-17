@@ -26,7 +26,7 @@
 
 | Компонент | Файл | Что делает |
 |---|---|---|
-| Collector | `collectors/*.py`, `main_collect.py` | Playwright, курсор по последнему отзыву, не пересканирует историю |
+| Collector | `collectors/*.py`, `main_collect.py` | Playwright/Apify, ограниченное недавнее окно на каждый прогон (не курсор — см. README) + дедуп на `UNIQUE(platform, external_review_id)` в БД |
 | Sentiment Analyst | `agents/sentiment_analyst.py`, `main_analyze.py` | LLM, aspect-based тональность, управляемый словарь тегов+категорий |
 | Alert Engine | `agents/alert_engine.py`, `main_alerts.py` | Пороги по окнам ("вспышка") + ступенчатая эскалация ("тлеющая проблема", 180→360→720 дней), персистентное состояние, Watchdog по SLA. С 2026-07-17 — **единственное место**, где тег-/зона-алерты пересчитываются И шлются в Telegram (`send_alert_changes` в `main_alerts.py`), см. "Разделение Telegram/дашборд" ниже |
 | Reply Strategist | `agents/reply_strategist.py`, `main_reply.py` | Черновик ответа + классификация, гайд тона (`tone_of_voice.md`) |

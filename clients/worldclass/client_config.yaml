@@ -155,7 +155,6 @@ tags:
 collection:
   backfill_lookback_days: 180   # глубина истории при первом запуске (не тянем всю историю за 10 лет)
   poll_interval_hours: 6        # как часто проверять новые отзывы (кроме 2ГИС — см. override у площадки)
-  discover_new_platforms: true  # v2: раз в неделю искать площадки, которые ещё не добавлены вручную
 
   # Окна для неотвеченных отзывов (по review_date — дате самого отзыва, не дедлайна SLA),
   # см. main_watchdog.py / main_weekly_stale.py:

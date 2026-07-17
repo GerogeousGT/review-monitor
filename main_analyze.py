@@ -1,4 +1,10 @@
-"""Проходит по несанализированным отзывам, вызывает Sentiment Analyst, пишет теги и тональность."""
+"""Проходит по несанализированным отзывам, вызывает Sentiment Analyst, пишет теги и тональность.
+
+persist_analysis()/normalize_zone() ниже — общий путь записи результата в БД,
+переиспользуется main_reanalyze.py (импортирует их отсюда). До 2026-07-17 эти два
+скрипта дублировали логику с расхождением: main_reanalyze.py не нормализовал zone
+и не сохранял evidence/review_id для новых pending-тегов (см. CHANGELOG) — теперь
+один код на оба сценария."""
 from core.llm_provider import RateLimitError
 
 from core.config import load_config, load_few_shot_examples
@@ -23,7 +29,7 @@ from agents.notifier import send_message, format_new_tag_approval_message
 ZONE_CATEGORIES = {"зона клуба", "подразделение"}
 
 
-def _normalize_zone(zone: str | None, known_zones: set[str]) -> str | None:
+def normalize_zone(zone: str | None, known_zones: set[str]) -> str | None:
     """Сопоставляет свободный текст от модели с известным местом клуба — без
     этого счётчик зонального алерта дробится на варианты написания одного и
     того же места (найдено 2026-07-16: "женская раздевалка" вместо
@@ -41,6 +47,55 @@ def _normalize_zone(zone: str | None, known_zones: set[str]) -> str | None:
         if known in zone:
             return known
     return zone
+
+
+def persist_analysis(
+    conn,
+    review_id: int,
+    review_date: str | None,
+    result: dict,
+    reply_sla_hours: dict,
+    active_tags: set[str],
+    known_categories: set[str],
+    known_zones: set[str],
+) -> str:
+    """Записывает результат Sentiment Analyst (тональность + пер-аспектные теги
+    с zone-нормализацией и evidence для pending-тегов) для одного review_id.
+    Общий путь для main_analyze.py (новые отзывы) и main_reanalyze.py
+    (переанализ существующих) — до 2026-07-17 они расходились: reanalyze не
+    нормализовал zone и не сохранял evidence/review_id для новых тегов, что
+    оставляло approval-карточку без контекста ("отзыв не найден") и позволяло
+    вариантам написания зоны (найдено на проде daudelsport: "женская
+    раздевалка", "бар") дробить счётчик зонального алерта. Возвращает строку
+    "tag:sentiment, ..." для лога вызывающей стороны."""
+    deadline = compute_reply_deadline(review_date, result["sentiment"], reply_sla_hours)
+    update_review_sentiment(
+        conn,
+        review_id,
+        result["sentiment"],
+        result["sentiment_score"],
+        result["sentiment_reasoning"],
+        result["urgency"],
+        deadline,
+    )
+
+    for aspect in result.get("aspects", []):
+        tag = aspect["tag"].strip().lower()
+        # Не доверяем флагу is_new от модели вслепую — сверяем с реальным активным
+        # словарём в коде. Модель может ошибочно решить, что тег уже существует
+        # (например, перепутать написание "atmosfera" с "атмосфера") и не пометить
+        # его как новый — тогда он проскочит мимо утверждения. Здесь этого не будет.
+        if tag not in active_tags:
+            category = aspect.get("category")
+            if category not in known_categories:
+                category = "не определено"
+            insert_tag_if_new(conn, tag, category, aspect.get("tag_evidence", ""), review_id)
+        zone = aspect.get("zone")
+        zone = zone.strip().lower() if zone else None
+        zone = normalize_zone(zone, known_zones)
+        insert_review_tag(conn, review_id, tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""), zone)
+
+    return ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", [])) or "без тем"
 
 
 def main():
@@ -64,6 +119,10 @@ def main():
     for i, review in enumerate(reviews):
         try:
             result = analyze_review(review["text"] or "", review["rating"], tag_dictionary, category_dictionary, few_shot_examples)
+            tags_str = persist_analysis(
+                conn, review["id"], review["review_date"], result, reply_sla_hours,
+                active_tags, known_categories, known_zones,
+            )
         except RateLimitError as e:
             remaining = len(reviews) - i
             print(f"\nЛимит провайдера LLM исчерпан. Разобрано {i} из {len(reviews)}, осталось {remaining}.")
@@ -71,38 +130,13 @@ def main():
             print("Останавливаюсь — перезапусти main_analyze.py позже, необработанные отзывы подхватятся сами.")
             break
         except Exception as e:
+            # Ловит и сбой самого вызова LLM, и битый/неполный JSON от модели
+            # (например отсутствующий ключ "sentiment") внутри persist_analysis —
+            # оба случая должны просто пропустить этот отзыв, не ронять весь прогон.
             print(f"[review {review['id']}] ОШИБКА анализа: {e}")
             continue
 
-        deadline = compute_reply_deadline(review["review_date"], result["sentiment"], reply_sla_hours)
-        update_review_sentiment(
-            conn,
-            review["id"],
-            result["sentiment"],
-            result["sentiment_score"],
-            result["sentiment_reasoning"],
-            result["urgency"],
-            deadline,
-        )
-
-        for aspect in result.get("aspects", []):
-            tag = aspect["tag"].strip().lower()
-            # Не доверяем флагу is_new от модели вслепую — сверяем с реальным активным
-            # словарём в коде. Модель может ошибочно решить, что тег уже существует
-            # (например, перепутать написание "atmosfera" с "атмосфера") и не пометить
-            # его как новый — тогда он проскочит мимо утверждения. Здесь этого не будет.
-            if tag not in active_tags:
-                category = aspect.get("category")
-                if category not in known_categories:
-                    category = "не определено"
-                insert_tag_if_new(conn, tag, category, aspect.get("tag_evidence", ""), review["id"])
-            zone = aspect.get("zone")
-            zone = zone.strip().lower() if zone else None
-            zone = _normalize_zone(zone, known_zones)
-            insert_review_tag(conn, review["id"], tag, aspect["tag_sentiment"], aspect.get("tag_evidence", ""), zone)
-
-        tags_str = ", ".join(f"{a['tag']}:{a['tag_sentiment']}" for a in result.get("aspects", []))
-        print(f"[review {review['id']}] {result['sentiment']} ({result['sentiment_score']}/10) — {tags_str or 'без тем'}")
+        print(f"[review {review['id']}] {result['sentiment']} ({result['sentiment_score']}/10) — {tags_str}")
 
     # Approval новых тегов (см. PLAN.md) — текстовое уведомление БЕЗ кнопок,
     # само решение принимается в дашборде (webapp), не в Telegram — выбор

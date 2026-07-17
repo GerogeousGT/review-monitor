@@ -1,9 +1,13 @@
 """Создать пользователя дашборда — вручную через CLI, без UI регистрации (пока
 единственный сценарий — Жорж заводит себя как admin и позже клиентов вручную).
 
+Пароль ВСЕГДА запрашивается через getpass (не argv) — позиционный пароль в
+командной строке попадает в shell history и вывод `ps`, для single-admin
+сценария это не оправданный риск (исправлено 2026-07-17).
+
 Использование:
-  python create_user.py admin ЖоргПароль123 admin
-  python create_user.py worldclass_owner КлиентПароль123 client worldclass
+  python create_user.py admin admin
+  python create_user.py worldclass_owner client worldclass
 """
 import sys
 from getpass import getpass
@@ -14,14 +18,14 @@ import auth_db
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 2:
         print(__doc__)
         return
 
     username = sys.argv[1]
-    password = sys.argv[2] if len(sys.argv) > 2 else getpass("Пароль: ")
-    role = sys.argv[3] if len(sys.argv) > 3 else "admin"
-    client_slug = sys.argv[4] if len(sys.argv) > 4 else None
+    password = getpass("Пароль: ")
+    role = sys.argv[2] if len(sys.argv) > 2 else "admin"
+    client_slug = sys.argv[3] if len(sys.argv) > 3 else None
 
     if role == "client" and not client_slug:
         print("Для роли client нужен client_slug четвёртым аргументом.")
