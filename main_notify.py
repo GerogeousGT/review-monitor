@@ -1,18 +1,20 @@
-"""Цикл уведомлений (запускается каждые 6ч): новые отзывы → изменения алертов.
-Просрочки по SLA вынесены в main_watchdog.py (суточный запуск) и main_weekly_stale.py
+"""Цикл уведомлений (запускается каждые 6ч): карточки новых отзывов в Telegram.
+
+Алерты СЮДА НЕ ВХОДЯТ (исправлено 2026-07-17): их пересчёт и отправку делает
+main_alerts.py, который в run_cycle.sh запускается прямо перед этим скриптом. Раньше
+main_notify.py тоже вызывал recompute_all — но main_alerts.py уже применил все
+изменения секундой раньше, поэтому здесь diff был пустым и ни одно сообщение об
+алерте не уходило (см. docstring main_alerts.py). Теперь единственное место
+пересчёта+отправки алертов — main_alerts.py.
+
+Просрочки по SLA вынесены в main_watchdog.py (суточный) и main_weekly_stale.py
 (недельный) — иначе один и тот же старый "хвост" слался бы заново каждые 6 часов.
 Ничего не постит на площадки — только шлёт в Telegram, решение и ответ всегда за человеком."""
 from core import db
-from agents.alert_engine import recompute_all
-from core.config import load_config
-from agents.notifier import (
-    send_message, format_review_message, format_alert_message,
-    format_resolved_message,
-)
+from agents.notifier import send_message, format_review_message
 
 
 def main():
-    cfg = load_config()
     conn = db.get_connection()
     db.init_db(conn)
 
@@ -25,15 +27,7 @@ def main():
         db.mark_notified(conn, review["id"])
         sent += 1
 
-    for change in recompute_all(conn, cfg, db):
-        location_name = db.get_location_name(conn, change["location_id"])
-        if change["action"] == "resolved_auto":
-            send_message(format_resolved_message(change, location_name))
-        else:
-            send_message(format_alert_message(change, location_name))
-        sent += 1
-
-    print(f"Отправлено сообщений: {sent}")
+    print(f"Отправлено карточек новых отзывов: {sent}")
     conn.close()
 
 

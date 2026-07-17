@@ -155,22 +155,51 @@ def format_review_message(review: dict, tags: list[dict], location_name: str) ->
 
 
 def format_alert_message(change: dict, location_name: str) -> str:
+    """Тонкий пинг про тег-алерт — только "что и сколько", без drill-down: разбор
+    (сырые отзывы, evidence, тренд) живёт в дашборде, Telegram лишь зовёт туда
+    (разделение ответственности ТГ/дашборд — решение Жоржа, 2026-07-17)."""
     icon = SEVERITY_ICON.get(change["severity"], "•")
     if change["action"] == "opened":
         return (
             f"{icon} Новый алерт — <b>{_esc(location_name)}</b>\n"
             f"Тема: <b>{_esc(change['tag'])}</b> — {change['count_in_window']} негативных отзывов "
-            f"за {change['window_matched']} дн. ({change['severity']})"
+            f"за {change['window_matched']} дн. ({change['severity']})\n"
+            f"Разбор — в дашборде."
         )
     return (
         f"{icon} Алерт обновлён — <b>{_esc(location_name)}</b>\n"
         f"Тема: <b>{_esc(change['tag'])}</b> — {change['previous_severity']} → {change['severity']} "
-        f"({change['count_in_window']} за {change['window_matched']} дн.)"
+        f"({change['count_in_window']} за {change['window_matched']} дн.)\n"
+        f"Разбор — в дашборде."
     )
 
 
 def format_resolved_message(change: dict, location_name: str) -> str:
     return f"🟢 Алерт закрыт — <b>{_esc(location_name)}</b>\nТема: <b>{_esc(change['tag'])}</b> — счёт вернулся в норму."
+
+
+def format_zone_alert_message(change: dict, location_name: str) -> str:
+    """Тонкий пинг про зональный алерт ("зона X стабильно копит негатив независимо
+    от темы", см. PLAN.md "Tag + Zone, шаг 2"). Как и тег-алерт — только сигнал
+    "иди в дашборд за подробностями", ключ зоны лежит в change['zone']."""
+    icon = SEVERITY_ICON.get(change["severity"], "•")
+    if change["action"] == "opened":
+        return (
+            f"{icon} Проблемная зона — <b>{_esc(location_name)}</b>\n"
+            f"Зона: <b>{_esc(change['zone'])}</b> — {change['count_in_window']} негативных отзывов "
+            f"за {change['window_matched']} дн. ({change['severity']})\n"
+            f"Подробности — в дашборде."
+        )
+    return (
+        f"{icon} Зона обновлена — <b>{_esc(location_name)}</b>\n"
+        f"Зона: <b>{_esc(change['zone'])}</b> — {change['previous_severity']} → {change['severity']} "
+        f"({change['count_in_window']} за {change['window_matched']} дн.)\n"
+        f"Подробности — в дашборде."
+    )
+
+
+def format_zone_resolved_message(change: dict, location_name: str) -> str:
+    return f"🟢 Зона в норме — <b>{_esc(location_name)}</b>\nЗона: <b>{_esc(change['zone'])}</b> — негатив вернулся к норме."
 
 
 def format_repeat_offender_message(alert: dict, location_name: str, is_last: bool = False) -> str:
