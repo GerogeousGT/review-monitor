@@ -28,6 +28,8 @@ from flask_login import (
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import auth_db
+import charts
+import period
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLIENTS_DIR = PROJECT_ROOT / "clients"
@@ -134,6 +136,14 @@ def _primary_location_id(conn) -> str | None:
     (heatmap филиалы×темы), непроверяемо без реального мультиточечного клиента."""
     locations = core_db.get_locations(conn)
     return locations[0] if locations else None
+
+
+# График динамики тональности (2026-07-17, запрос Жоржа 2026-07-14 — см. PLAN.md
+# "Дашборд клиента v2"). Логика разрешения периода (пресеты + свой диапазон) —
+# в отдельном period.py (та же причина, что у charts.py: чистый stdlib-модуль,
+# тестируемый из корневого venv без Flask, см. period.py docstring).
+PERIOD_PRESETS = period.PERIOD_PRESETS
+DEFAULT_PERIOD = period.DEFAULT_PERIOD
 
 
 @app.route("/health")
@@ -247,6 +257,32 @@ def dashboard(slug: str):
     now = datetime.now(timezone.utc)
     since_month = (now - timedelta(days=30)).isoformat()
 
+    # Динамика тональности — период выбирается отдельно от фикс. 30-дневного
+    # среза ниже (top_praised/platform_comparison и т.п. эту секцию НЕ трогают,
+    # см. PLAN.md — Жорж просил график+статус-бар за выбранный период, не
+    # переводить весь дашборд на плавающее окно). period_totals — статус-бар
+    # 🟢🟡🔴 ПОД графиком за ТОТ ЖЕ период, не независимый расчёт.
+    custom_since_raw = request.args.get("since", "")
+    custom_until_raw = request.args.get("until", "")
+    requested_period_key = request.args.get("period", DEFAULT_PERIOD)
+    since_period, until_period, granularity, period_key = period.resolve_period(
+        requested_period_key, custom_since_raw, custom_until_raw
+    )
+    sentiment_by_period = core_db.get_review_sentiment_counts_by_period(
+        conn, location_id, since_period, until_period, granularity
+    )
+    sentiment_chart_svg = charts.render_diverging_bar_chart(sentiment_by_period)
+    period_totals = {"positive": 0, "neutral": 0, "negative": 0}
+    for row in sentiment_by_period:
+        for key in period_totals:
+            period_totals[key] += row[key]
+    # Предзаполнение полей "свой диапазон" в форме: если сейчас реально custom
+    # (см. effective_period_key выше) — эхо введённых значений как есть; иначе
+    # (пресет активен) — производные даты текущего пресета, чтобы переключение
+    # на "Свой диапазон" стартовало не с пустых полей.
+    custom_since_value = custom_since_raw if period_key == "custom" else since_period[:10]
+    custom_until_value = custom_until_raw if period_key == "custom" else until_period[:10]
+
     all_active_alerts = core_db.get_all_active_alerts(conn)
     tag_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "tag"]
     zone_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "zone"]
@@ -259,7 +295,6 @@ def dashboard(slug: str):
     overdue_recent = core_db.get_overdue_reviews(conn)
     overdue_stale = core_db.get_stale_overdue_reviews(conn)
 
-    sentiment_counts = core_db.get_review_sentiment_counts_since(conn, location_id, since_month)
     top_praised = core_db.get_top_tags_by_sentiment_since(conn, location_id, since_month, "positive")
     top_criticized = core_db.get_top_tags_by_sentiment_since(conn, location_id, since_month, "negative")
     platform_comparison = core_db.get_platform_comparison_since(conn, location_id, since_month)
@@ -282,7 +317,12 @@ def dashboard(slug: str):
         tag_alerts=tag_alerts,
         zone_alerts=zone_alerts,
         repeat_offender_alerts=repeat_offender_alerts,
-        sentiment_counts=sentiment_counts,
+        sentiment_chart_svg=sentiment_chart_svg,
+        period_totals=period_totals,
+        period_key=period_key,
+        period_presets=PERIOD_PRESETS,
+        custom_since_value=custom_since_value,
+        custom_until_value=custom_until_value,
         top_praised=top_praised,
         top_criticized=top_criticized,
         platform_comparison=platform_comparison,

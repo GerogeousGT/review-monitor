@@ -47,6 +47,78 @@
   .sentiment-bar .seg.negative { background: var(--danger); }
   .sentiment-legend { display: flex; gap: 16px; font-size: 0.8125rem; color: var(--text-dim); white-space: nowrap; }
 
+  .period-tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .period-tab {
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .period-tab:hover { color: var(--text); }
+  .period-tab.active { color: var(--text); border-color: var(--accent-2); background: var(--surface); }
+
+  .custom-range-form {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    font-size: 0.8125rem;
+    color: var(--text-dim);
+  }
+  .custom-range-form.open { display: flex; flex-wrap: wrap; }
+  .custom-range-form input[type="date"] {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-family: inherit;
+  }
+  .custom-range-form button {
+    background: var(--surface);
+    border: 1px solid var(--accent-2);
+    border-radius: 6px;
+    padding: 5px 14px;
+    color: var(--text);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .custom-range-form button:hover { background: var(--surface-2); }
+
+  .chart-wrap {
+    position: relative;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px 8px;
+    margin-bottom: 14px;
+  }
+  .chart-wrap svg text { user-select: none; }
+  .chart-bar-hit { cursor: pointer; }
+  .chart-bar-hit:focus { outline: 2px solid var(--accent-2); outline-offset: -1px; }
+  .chart-tooltip {
+    position: absolute;
+    display: none;
+    transform: translate(-50%, calc(-100% - 10px));
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+    color: var(--text);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .chart-tooltip.visible { display: block; }
+
   .alert-list, .offender-list, .overdue-list, .hidden-list { display: flex; flex-direction: column; gap: 8px; }
   .alert-item, .offender-item, .overdue-item, .hidden-item {
     background: var(--surface-2);
@@ -180,10 +252,30 @@
 </div>
 
 <div class="section">
-  <h2>Отзывы за 30 дней</h2>
-  {% set pos = sentiment_counts.get('positive', 0) %}
-  {% set neu = sentiment_counts.get('neutral', 0) %}
-  {% set neg = sentiment_counts.get('negative', 0) %}
+  <h2>Динамика тональности</h2>
+  <div class="period-tabs">
+    {% for key, preset in period_presets.items() %}
+    <a class="period-tab {% if key == period_key %}active{% endif %}"
+       href="{{ url_for('dashboard', slug=slug) }}?period={{ key }}">{{ preset.title }}</a>
+    {% endfor %}
+    <a class="period-tab {% if period_key == 'custom' %}active{% endif %}"
+       onclick="document.getElementById('customRangeForm').classList.toggle('open'); return false;"
+       href="#">Свой диапазон</a>
+  </div>
+  <form id="customRangeForm" class="custom-range-form {% if period_key == 'custom' %}open{% endif %}"
+        method="get" action="{{ url_for('dashboard', slug=slug) }}">
+    <input type="hidden" name="period" value="custom">
+    <label>с <input type="date" name="since" value="{{ custom_since_value }}"></label>
+    <label>по <input type="date" name="until" value="{{ custom_until_value }}"></label>
+    <button type="submit">Показать</button>
+  </form>
+  <div class="chart-wrap">
+    {{ sentiment_chart_svg | safe }}
+    <div class="chart-tooltip" id="chartTooltip"></div>
+  </div>
+  {% set pos = period_totals.get('positive', 0) %}
+  {% set neu = period_totals.get('neutral', 0) %}
+  {% set neg = period_totals.get('negative', 0) %}
   {% set total = pos + neu + neg %}
   <div class="sentiment-bar-wrap">
     {% if total > 0 %}
@@ -371,5 +463,52 @@
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeAlertModal();
   });
+
+  // Тултип графика динамики тональности (2026-07-17) — HTML-тултип вместо
+  // нативного SVG <title> (медленный, нестилизованный системный тултип, плохо
+  // смотрится на демо). data-tooltip уже полностью экранирован сервером
+  // (webapp/charts.py: _esc), но используем textContent, а не innerHTML —
+  // untrusted-by-default, см. dataviz skill interaction.md.
+  (function () {
+    var chartWrap = document.querySelector('.chart-wrap');
+    var tooltip = document.getElementById('chartTooltip');
+    if (!chartWrap || !tooltip) return;
+
+    function positionTooltip(el) {
+      var wrapRect = chartWrap.getBoundingClientRect();
+      var barRect = el.getBoundingClientRect();
+      tooltip.style.left = (barRect.left + barRect.width / 2 - wrapRect.left) + 'px';
+      tooltip.style.top = (barRect.top - wrapRect.top) + 'px';
+    }
+
+    function showTooltip(el) {
+      var text = el.getAttribute('data-tooltip');
+      if (!text) return;
+      tooltip.textContent = text;
+      tooltip.classList.add('visible');
+      positionTooltip(el);
+    }
+
+    function hideTooltip() {
+      tooltip.classList.remove('visible');
+    }
+
+    chartWrap.addEventListener('pointerover', function (e) {
+      var el = e.target.closest('.chart-bar-hit');
+      if (el) showTooltip(el);
+    });
+    chartWrap.addEventListener('pointerout', function (e) {
+      var el = e.target.closest('.chart-bar-hit');
+      if (el) hideTooltip();
+    });
+    chartWrap.addEventListener('focusin', function (e) {
+      var el = e.target.closest('.chart-bar-hit');
+      if (el) showTooltip(el);
+    });
+    chartWrap.addEventListener('focusout', function (e) {
+      var el = e.target.closest('.chart-bar-hit');
+      if (el) hideTooltip();
+    });
+  })();
 </script>
 {% endblock %}

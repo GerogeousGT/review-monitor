@@ -685,6 +685,82 @@ def get_overdue_reviews_since(conn: sqlite3.Connection, location_id: str, since_
 # (см. PLAN.md "Дашборд клиента v1/v2" — что осталось в v2 и почему)
 # ============================================================================
 
+_RU_MONTHS_SHORT = {
+    1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+    7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек",
+}
+
+
+def _period_bucket(dt: datetime, granularity: str) -> tuple[str, str]:
+    """Возвращает (ключ_сортировки, человекочитаемая_подпись) для одной даты под
+    выбранную гранулярность. Ключ сортировки — строка, лексикографически
+    сортируемая по возрастанию (YYYY-MM-DD/YYYY-Www/YYYY-MM), не требует
+    отдельного парсинга обратно в дату."""
+    if granularity == "day":
+        key = dt.strftime("%Y-%m-%d")
+        return key, f"{dt.day} {_RU_MONTHS_SHORT[dt.month]}"
+    if granularity == "week":
+        iso_year, iso_week, _ = dt.isocalendar()
+        key = f"{iso_year}-W{iso_week:02d}"
+        return key, f"нед. {iso_week}"
+    if granularity == "month":
+        key = dt.strftime("%Y-%m")
+        return key, f"{_RU_MONTHS_SHORT[dt.month]} {dt.year}"
+    raise ValueError(f"неизвестная гранулярность: {granularity!r}")
+
+
+def get_review_sentiment_counts_by_period(
+    conn: sqlite3.Connection, location_id: str, since_iso: str, until_iso: str, granularity: str,
+) -> list[dict]:
+    """Тональность отзывов, сгруппированная по периодам (день/неделя/месяц) для
+    графика динамики (см. PLAN.md "Дашборд клиента v2" — запрос на график вместо
+    статичного статус-бара за 30 дней). granularity: 'day'|'week'|'month' —
+    выбор гранулярности делает вызывающая сторона (webapp/app.py) по длине
+    диапазона (неделя → day, месяц → day, квартал → week), эта функция только
+    группирует. Фильтрация/группировка в Python через parse_review_date — та же
+    причина, что и в остальных функциях этого раздела (площадки отдают разные
+    форматы дат, строковое сравнение/группировка в SQL ненадёжны).
+
+    Возвращает список периодов в хронологическом порядке (даже если в периоде
+    0 отзывов — график не должен "проглатывать" пустые дни/недели), каждый:
+    {"period": "2026-07-12", "label": "12 июл", "positive": N, "neutral": N, "negative": N}."""
+    since_dt = parse_review_date(since_iso)
+    until_dt = parse_review_date(until_iso)
+
+    rows = conn.execute(
+        "SELECT sentiment, review_date FROM reviews WHERE location_id=? AND review_date IS NOT NULL",
+        (location_id,),
+    ).fetchall()
+
+    buckets: dict[str, dict] = {}
+    for row in rows:
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt < since_dt or dt > until_dt:
+            continue
+        if row["sentiment"] not in ("positive", "neutral", "negative"):
+            continue
+        key, label = _period_bucket(dt, granularity)
+        bucket = buckets.setdefault(key, {"period": key, "label": label, "positive": 0, "neutral": 0, "negative": 0})
+        bucket[row["sentiment"]] += 1
+
+    # Заполняем пустые периоды нулями — иначе диапазон без отзывов посреди
+    # периода "выпадал" бы из графика, искажая визуальную непрерывность оси.
+    # Шаг всегда 1 день (даже для week/month) — фиксированный шаг в 7/31 день
+    # мог бы перескочить короткий месяц (например, февраль) или задвоить
+    # неделю; дневной шаг гарантированно задевает каждый период хотя бы раз,
+    # а `setdefault` естественно дедуплицирует попадания в один и тот же bucket.
+    cursor = since_dt
+    while cursor <= until_dt:
+        key, label = _period_bucket(cursor, granularity)
+        buckets.setdefault(key, {"period": key, "label": label, "positive": 0, "neutral": 0, "negative": 0})
+        cursor += timedelta(days=1)
+
+    return sorted(buckets.values(), key=lambda b: b["period"])
+
+
 def get_platform_comparison_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[dict]:
     """Объём и доля негатива по площадке за период — "куда направить усилия по
     ответам" (см. PLAN.md, документ Perplexity — Platform Comparison). Фильтрация по
