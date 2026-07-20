@@ -203,11 +203,11 @@
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 12px 0; }
 
-  .alert-item.clickable, .offender-item.clickable, .overdue-item.clickable {
+  .alert-item.clickable, .offender-item.clickable, .overdue-item.clickable, .hidden-item.clickable {
     cursor: pointer;
     transition: border-color 0.15s;
   }
-  .alert-item.clickable:hover, .offender-item.clickable:hover, .overdue-item.clickable:hover {
+  .alert-item.clickable:hover, .offender-item.clickable:hover, .overdue-item.clickable:hover, .hidden-item.clickable:hover {
     border-color: var(--accent-2);
   }
 
@@ -508,7 +508,7 @@
   {% if hidden_problems %}
   <div class="hidden-list">
     {% for h in hidden_problems %}
-    <div class="hidden-item">
+    <div class="hidden-item clickable" onclick="openReviewModal({{ h.id }}, '{{ h.rating }}★ · {{ h.negative_tags|e }}')">
       <span class="stars">{{ '★' * h.rating }}{{ '☆' * (5 - h.rating) }}</span>
       <span class="text">{{ h.text }}</span>
       <span class="tags">{{ h.negative_tags }}</span>
