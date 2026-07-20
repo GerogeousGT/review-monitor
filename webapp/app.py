@@ -316,6 +316,16 @@ def dashboard(slug: str):
     platform_comparison = core_db.get_platform_comparison_since(conn, location_id, since_month)
     hidden_problems = core_db.get_hidden_problems(conn, location_id)
 
+    # Для формы правки тега внутри модалок drill-down (алерты/дерево/просрочки,
+    # 2026-07-20) — тот же паттерн, что уже дважды продублирован в
+    # dashboard_reviews()/dashboard_tags() ниже.
+    tags_by_category: dict[str, list[str]] = {}
+    for t in core_db.get_tag_dictionary(conn, active_only=True):
+        tags_by_category.setdefault(t["category"] or "без категории", []).append(t["tag"])
+    for tags in tags_by_category.values():
+        tags.sort()
+    tags_by_category = dict(sorted(tags_by_category.items()))
+
     conn.close()
 
     red_count = sum(1 for a in tag_alerts if a["severity"] == "red")
@@ -339,6 +349,7 @@ def dashboard(slug: str):
         period_presets=PERIOD_PRESETS,
         custom_since_value=custom_since_value,
         custom_until_value=custom_until_value,
+        tags_by_category=tags_by_category,
         since_period=since_period,
         until_period=until_period,
         category_tag_tree=category_tag_tree,
@@ -653,6 +664,7 @@ def alert_reviews_fragment(slug: str, alert_id: int):
 
     for r in reviews:
         r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
+        r["tags"] = core_db.get_review_tags(conn, r["id"])
 
     conn.close()
     return render_template("_alert_reviews_fragment.html", reviews=reviews, title=title)
@@ -693,9 +705,40 @@ def tag_reviews_fragment(slug: str, tag: str):
 
     for r in reviews:
         r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
+        r["tags"] = core_db.get_review_tags(conn, r["id"])
 
     conn.close()
     return render_template("_alert_reviews_fragment.html", reviews=reviews, title=tag)
+
+
+@app.route("/dashboard/<slug>/review/<int:review_id>/fragment")
+@login_required
+def review_fragment(slug: str, review_id: int):
+    """Drill-down "просрочка по SLA → сам отзыв" (2026-07-20, запрос Жоржа: строка
+    статуса в "Просрочки по SLA" не давала посмотреть, что за отзыв) — тот же
+    паттерн модалки, что у алертов/дерева, но на ОДИН конкретный review_id вместо
+    выборки по тегу/окну. БД клиента — отдельный файл на слугу (см. _client_db_path),
+    поэтому любой review_id, найденный в этой базе, по определению принадлежит
+    именно этому клиенту — доп. проверка location_id не нужна."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return "Доступ запрещён", 403
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+
+    review = core_db.get_review_by_id(conn, review_id)
+    if review is None:
+        conn.close()
+        return render_template("_alert_reviews_fragment.html", reviews=[], title="Отзыв не найден")
+
+    r = dict(review)
+    r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
+    r["tags"] = core_db.get_review_tags(conn, r["id"])
+    title = f"{PLATFORM_LABELS.get(r['platform'], r['platform'])} · {r['review_date'][:10] if r['review_date'] else ''}"
+
+    conn.close()
+    return render_template("_alert_reviews_fragment.html", reviews=[r], title=title)
 
 
 @app.route("/telegram/webhook/<slug>", methods=["POST"])

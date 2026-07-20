@@ -1,15 +1,29 @@
-{# HTML-фрагмент для модалки drill-down (не отдельная страница — вставляется через fetch+innerHTML) #}
+{# HTML-фрагмент для модалки drill-down (не отдельная страница — вставляется через
+   fetch+innerHTML). Те же редактируемые карточки, что на "Ленте отзывов" (2026-07-20,
+   запрос Жоржа: если в алерте видно неверно размеченный отзыв, поправить тег сразу
+   на месте, не переходя на другую вкладку) — тег-чипы с ✎ и кнопка "+ тег".
+   <script> внутри фрагмента браузер НЕ выполнит (innerHTML инертен для script) — вся
+   логика навешивается снаружи, см. dashboard.html: wireTagEditors(). #}
 {% if reviews %}
 {% for r in reviews %}
-<div class="modal-review">
-  <div class="modal-review-head">
+<div class="review-card" data-review-id="{{ r.id }}">
+  <div class="review-head">
     <span class="stars">{{ '★' * (r.rating or 0) }}{{ '☆' * (5 - (r.rating or 0)) }}</span>
     <span class="platform">{{ r.platform_label }}</span>
     <span>{{ r.author or 'без имени' }}</span>
     <span>&middot;</span>
     <span>{{ r.review_date[:10] if r.review_date else '' }}</span>
   </div>
-  <div class="modal-review-text">{{ r.text or '(без текста)' }}</div>
+  <div class="review-text">{{ r.text or '(без текста)' }}</div>
+  <div class="review-tags">
+    {% for t in r.tags %}
+    <span class="review-tag {{ t.tag_sentiment }}" data-tag-row-id="{{ t.id }}">
+      <span class="tag-label">{{ t.tag }}</span>
+      <button type="button" class="tag-edit-btn" title="Исправить тег">✎</button>
+    </span>
+    {% endfor %}
+    <button type="button" class="add-tag-btn" title="Добавить ещё тег на этот отзыв">+ тег</button>
+  </div>
 </div>
 {% endfor %}
 {% else %}

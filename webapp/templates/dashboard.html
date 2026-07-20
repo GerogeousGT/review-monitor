@@ -203,11 +203,11 @@
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 12px 0; }
 
-  .alert-item.clickable, .offender-item.clickable {
+  .alert-item.clickable, .offender-item.clickable, .overdue-item.clickable {
     cursor: pointer;
     transition: border-color 0.15s;
   }
-  .alert-item.clickable:hover, .offender-item.clickable:hover {
+  .alert-item.clickable:hover, .offender-item.clickable:hover, .overdue-item.clickable:hover {
     border-color: var(--accent-2);
   }
 
@@ -253,25 +253,43 @@
   .modal-body { padding: 18px 22px; overflow-y: auto; }
   .modal-loading { color: var(--text-dim); font-size: 0.875rem; text-align: center; padding: 30px 0; }
 
-  .modal-review {
+  {# Карточка отзыва внутри модалки (2026-07-20) — та же разметка/классы, что на
+     "Ленте отзывов" (dashboard_reviews.html), включая редактирование тегов на
+     месте: клик по алерту/тегу/просрочке показывает отзыв и можно сразу
+     поправить неверный тег, не переходя на другую вкладку. #}
+  .review-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 14px 16px;
     margin-bottom: 10px;
   }
-  .modal-review:last-child { margin-bottom: 0; }
-  .modal-review-head {
+  .review-card:last-child { margin-bottom: 0; }
+  .review-head {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 0.8125rem;
     color: var(--text-dim);
     margin-bottom: 8px;
+    flex-wrap: wrap;
   }
-  .modal-review-head .stars { color: #e0b84c; }
-  .modal-review-head .platform { font-weight: 600; color: var(--text); }
-  .modal-review-text { font-size: 0.875rem; line-height: 1.5; }
+  .review-head .stars { color: #e0b84c; }
+  .review-head .platform { font-weight: 600; color: var(--text); }
+  .review-text { font-size: 0.875rem; line-height: 1.5; margin-bottom: 10px; }
+  .review-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .review-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); }
+  .review-tag.positive { color: var(--accent); border-color: rgba(94,234,168,0.3); }
+  .review-tag.negative { color: var(--danger); border-color: rgba(234,94,110,0.3); }
+  .tag-edit-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.7rem; padding: 0; line-height: 1; }
+  .tag-edit-btn:hover { color: var(--text); }
+  .tag-edit-form { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+  .tag-edit-form select { font-size: 0.75rem; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+  .tag-edit-form button { font-size: 0.7rem; padding: 2px 8px; border-radius: 6px; border: none; background: var(--accent); color: #0c1119; cursor: pointer; font-weight: 700; }
+  .tag-edit-form .cancel { background: none; color: var(--text-dim); border: 1px solid var(--border); }
+  .tag-edit-form .delete { background: none; color: var(--danger); border: 1px solid rgba(234,94,110,0.3); }
+  .add-tag-btn { font-size: 0.75rem; padding: 3px 9px; border-radius: 999px; border: 1px dashed var(--border); background: none; color: var(--text-dim); cursor: pointer; }
+  .add-tag-btn:hover { color: var(--text); border-color: var(--text-dim); }
   .modal-empty { color: var(--text-dim); font-size: 0.875rem; text-align: center; padding: 20px 0; }
 </style>
 
@@ -371,16 +389,16 @@
   {% if overdue_recent or overdue_stale %}
   <div class="overdue-list">
     {% for r in overdue_recent %}
-    <div class="overdue-item">
+    <div class="overdue-item clickable" onclick="openReviewModal({{ r.id }}, '{{ platform_labels.get(r.platform, r.platform)|e }} · {{ r.sentiment|e }}')">
       <span class="severity-dot red"></span>
-      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span>{{ platform_labels.get(r.platform, r.platform) }}, {{ r.sentiment }}</span>
       <span class="meta">дедлайн {{ r.reply_sla_deadline[:10] }}</span>
     </div>
     {% endfor %}
     {% for r in overdue_stale %}
-    <div class="overdue-item" style="opacity: 0.6;">
+    <div class="overdue-item clickable" style="opacity: 0.6;" onclick="openReviewModal({{ r.id }}, '{{ platform_labels.get(r.platform, r.platform)|e }} · {{ r.sentiment|e }}')">
       <span class="severity-dot yellow"></span>
-      <span>{{ r.platform }}, {{ r.sentiment }}</span>
+      <span>{{ platform_labels.get(r.platform, r.platform) }}, {{ r.sentiment }}</span>
       <span class="meta">забыто, дедлайн {{ r.reply_sla_deadline[:10] }}</span>
     </div>
     {% endfor %}
@@ -514,6 +532,31 @@
   </div>
 </div>
 
+{# Один общий шаблон формы правки тега на все модалки (алерты/дерево/просрочки,
+   2026-07-20) — не дублируется на каждый fetch фрагмента, вставлен один раз на
+   странице; JS клонирует его содержимое (см. wireTagEditors). #}
+<template id="tag-edit-template">
+  <span class="tag-edit-form">
+    <select class="tag-select">
+      {% for category, tags in tags_by_category.items() %}
+      <optgroup label="{{ category }}">
+        {% for tag in tags %}
+        <option value="{{ tag }}">{{ tag }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endfor %}
+    </select>
+    <select class="sentiment-select">
+      <option value="positive">🟢 positive</option>
+      <option value="neutral">🟡 neutral</option>
+      <option value="negative">🔴 negative</option>
+    </select>
+    <button type="button" class="save">✓</button>
+    <button type="button" class="cancel">отмена</button>
+    <button type="button" class="delete" style="display:none" title="Удалить тег">🗑</button>
+  </span>
+</template>
+
 <script>
   function openAlertModal(alertId, title) {
     const overlay = document.getElementById('alertModal');
@@ -524,8 +567,117 @@
 
     fetch(`{{ url_for('dashboard', slug=slug) }}/alert/${alertId}/reviews`)
       .then(r => r.text())
-      .then(html => { body.innerHTML = html; })
+      .then(html => { body.innerHTML = html; wireTagEditors(body); })
       .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзывы.</div>'; });
+  }
+
+  // Просрочки по SLA (2026-07-20): клик по строке открывает конкретный отзыв в
+  // той же модалке — раньше была только строка статуса без возможности
+  // посмотреть, что за отзыв.
+  function openReviewModal(reviewId, title) {
+    const overlay = document.getElementById('alertModal');
+    const body = document.getElementById('alertModalBody');
+    document.getElementById('alertModalTitle').textContent = title;
+    body.innerHTML = '<div class="modal-loading">Загрузка&hellip;</div>';
+    overlay.classList.add('open');
+
+    fetch(`{{ url_for('dashboard', slug=slug) }}/review/${reviewId}/fragment`)
+      .then(r => r.text())
+      .then(html => { body.innerHTML = html; wireTagEditors(body); })
+      .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзыв.</div>'; });
+  }
+
+  // Редактирование тегов внутри модалок (2026-07-20) — та же логика, что на
+  // "Ленте отзывов"/"Словаре тегов", но scoped на root (модалку), а не на
+  // document: содержимое модалки вставляется через innerHTML динамически,
+  // <script> внутри вставленного фрагмента браузер не выполнит, поэтому
+  // навешиваем обработчики здесь же, каждый раз после загрузки фрагмента.
+  function wireTagEditors(root) {
+    root.querySelectorAll('.tag-edit-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const chip = btn.closest('.review-tag');
+        const label = chip.querySelector('.tag-label');
+        const currentTag = label.textContent.trim();
+        const currentSentiment = [...chip.classList].find(c => ['positive', 'neutral', 'negative'].includes(c));
+
+        const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+        const form = tpl.querySelector('.tag-edit-form');
+        form.querySelector('.tag-select').value = currentTag;
+        form.querySelector('.sentiment-select').value = currentSentiment || 'neutral';
+
+        chip.innerHTML = '';
+        chip.appendChild(form);
+
+        const tagRowId = chip.dataset.tagRowId;
+        const deleteBtn = form.querySelector('.delete');
+        deleteBtn.style.display = '';
+
+        form.querySelector('.cancel').addEventListener('click', function () { location.reload(); });
+
+        deleteBtn.addEventListener('click', function () {
+          if (!confirm('Удалить тег "' + currentTag + '" с этого отзыва?')) return;
+          fetch(`{{ url_for('dashboard', slug=slug) }}/tag/${tagRowId}/delete`, { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.error) { alert('Ошибка: ' + data.error); return; }
+              location.reload();
+            })
+            .catch(function () { alert('Не удалось удалить — проверь соединение.'); });
+        });
+
+        form.querySelector('.save').addEventListener('click', function () {
+          const newTag = form.querySelector('.tag-select').value;
+          const newSentiment = form.querySelector('.sentiment-select').value;
+          fetch(`{{ url_for('dashboard', slug=slug) }}/tag/${tagRowId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.error) { alert('Ошибка: ' + data.error); return; }
+              location.reload();
+            })
+            .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+        });
+      });
+    });
+
+    root.querySelectorAll('.add-tag-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.dataset.active) return;
+        btn.dataset.active = '1';
+
+        const card = btn.closest('.review-card');
+        const reviewId = card.dataset.reviewId;
+
+        const tpl = document.getElementById('tag-edit-template').content.cloneNode(true);
+        const form = tpl.querySelector('.tag-edit-form');
+        form.querySelector('.sentiment-select').value = 'negative';
+
+        btn.insertAdjacentElement('beforebegin', form);
+        btn.style.display = 'none';
+
+        function restore() { form.remove(); btn.style.display = ''; delete btn.dataset.active; }
+        form.querySelector('.cancel').addEventListener('click', restore);
+
+        form.querySelector('.save').addEventListener('click', function () {
+          const newTag = form.querySelector('.tag-select').value;
+          const newSentiment = form.querySelector('.sentiment-select').value;
+          fetch(`{{ url_for('dashboard', slug=slug) }}/review/${reviewId}/tag`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `tag=${encodeURIComponent(newTag)}&tag_sentiment=${encodeURIComponent(newSentiment)}`,
+          })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+              if (data.error) { alert('Ошибка: ' + data.error); return; }
+              location.reload();
+            })
+            .catch(function () { alert('Не удалось сохранить — проверь соединение.'); });
+        });
+      });
+    });
   }
 
   // Дерево категория→тег: та же модалка, что у алертов — тег за период,
@@ -546,7 +698,7 @@
       + `?since=${encodeURIComponent(treeSince)}&until=${encodeURIComponent(treeUntil)}`;
     fetch(url)
       .then(r => r.text())
-      .then(html => { body.innerHTML = html; })
+      .then(html => { body.innerHTML = html; wireTagEditors(body); })
       .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзывы.</div>'; });
   }
 
