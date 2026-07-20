@@ -282,12 +282,12 @@
   <div class="summary-card neutral"><div class="num">{{ repeat_offender_alerts|length }}</div><div class="label">Повторных негативщиков</div></div>
 </div>
 
-<div class="section">
+<div class="section" id="sentiment-trend">
   <h2>Динамика тональности</h2>
   <div class="period-tabs">
     {% for key, preset in period_presets.items() %}
     <a class="period-tab {% if key == period_key %}active{% endif %}"
-       href="{{ url_for('dashboard', slug=slug) }}?period={{ key }}&cat_period={{ cat_period_key }}&cat_since={{ cat_custom_since_value }}&cat_until={{ cat_custom_until_value }}">{{ preset.title }}</a>
+       href="{{ url_for('dashboard', slug=slug) }}?period={{ key }}&cat_period={{ cat_period_key }}&cat_since={{ cat_custom_since_value }}&cat_until={{ cat_custom_until_value }}#sentiment-trend">{{ preset.title }}</a>
     {% endfor %}
     <a class="period-tab {% if period_key == 'custom' %}active{% endif %}"
        onclick="document.getElementById('customRangeForm').classList.toggle('open'); return false;"
@@ -295,9 +295,11 @@
   </div>
   {# cat_period/cat_since/cat_until — состояние блока "Темы по категориям" ниже, эхом в
      скрытых полях, чтобы смена периода графика не сбрасывала период дерева (2026-07-20,
-     секции работают с разной частотой смены диапазона — Жорж отдельно попросил). #}
+     секции работают с разной частотой смены диапазона — Жорж отдельно попросил).
+     #sentiment-trend в href/action — после перезагрузки страница остаётся на этой
+     секции, а не прыгает наверх (тот же фикс, что и у "Темы по категориям" ниже). #}
   <form id="customRangeForm" class="custom-range-form {% if period_key == 'custom' %}open{% endif %}"
-        method="get" action="{{ url_for('dashboard', slug=slug) }}">
+        method="get" action="{{ url_for('dashboard', slug=slug) }}#sentiment-trend">
     <input type="hidden" name="period" value="custom">
     <input type="hidden" name="cat_period" value="{{ cat_period_key }}">
     <input type="hidden" name="cat_since" value="{{ cat_custom_since_value }}">
@@ -410,14 +412,16 @@
   <div class="period-tabs">
     {% for key, preset in period_presets.items() %}
     <a class="period-tab {% if key == cat_period_key %}active{% endif %}"
-       href="{{ url_for('dashboard', slug=slug) }}?cat_period={{ key }}&period={{ period_key }}&since={{ custom_since_value }}&until={{ custom_until_value }}">{{ preset.title }}</a>
+       href="{{ url_for('dashboard', slug=slug) }}?cat_period={{ key }}&period={{ period_key }}&since={{ custom_since_value }}&until={{ custom_until_value }}#tag-categories">{{ preset.title }}</a>
     {% endfor %}
     <a class="period-tab {% if cat_period_key == 'custom' %}active{% endif %}"
        onclick="document.getElementById('catCustomRangeForm').classList.toggle('open'); return false;"
        href="#">Свой диапазон</a>
   </div>
+  {# #tag-categories в href/action — после смены периода страница остаётся на этой
+     секции вместо прыжка наверх (Жорж 2026-07-20: мешает при разборе тегов). #}
   <form id="catCustomRangeForm" class="custom-range-form {% if cat_period_key == 'custom' %}open{% endif %}"
-        method="get" action="{{ url_for('dashboard', slug=slug) }}">
+        method="get" action="{{ url_for('dashboard', slug=slug) }}#tag-categories">
     <input type="hidden" name="cat_period" value="custom">
     <input type="hidden" name="period" value="{{ period_key }}">
     <input type="hidden" name="since" value="{{ custom_since_value }}">
