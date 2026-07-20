@@ -166,6 +166,132 @@ def test_top_tags_by_sentiment_below_min_count_is_empty(conn):
     assert top == []
 
 
+def test_tag_counts_by_category_since_groups_and_sums(conn):
+    """Дерево категория→тег (2026-07-20, дашборд): группировка правильная, счётчики
+    на уровне категории и тега считаются раздельно по знаку, без порога min_count
+    (в отличие от get_top_tags_by_sentiment_since — здесь нужна полная картина,
+    не топ-N)."""
+    now = datetime.now(timezone.utc)
+    db.seed_tag_dictionary(conn, [
+        {"name": "оборудование", "category": "тренажёрный зал", "description": ""},
+        {"name": "чистота", "category": "тренажёрный зал", "description": ""},
+        {"name": "бассейн", "category": "бассейн и сауна", "description": ""},
+    ])
+
+    def _review(external_id):
+        r = {"external_id": external_id, "author": None, "rating": 4, "text": "т", "date": now.isoformat()}
+        db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+        return conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+
+    r1, r2, r3, r4 = _review("c1"), _review("c2"), _review("c3"), _review("c4")
+    db.insert_review_tag(conn, r1, "оборудование", "positive", "evidence")
+    db.insert_review_tag(conn, r2, "оборудование", "negative", "evidence")
+    db.insert_review_tag(conn, r3, "чистота", "positive", "evidence")
+    db.insert_review_tag(conn, r4, "бассейн", "negative", "evidence")
+
+    since = (now - timedelta(days=7)).isoformat()
+    until = (now + timedelta(days=1)).isoformat()
+    tree = db.get_tag_counts_by_category_since(conn, "loc1", since, until)
+
+    by_cat = {c["category"]: c for c in tree}
+    assert by_cat["тренажёрный зал"]["total"] == 3
+    assert by_cat["тренажёрный зал"]["positive"] == 2
+    assert by_cat["тренажёрный зал"]["negative"] == 1
+    assert by_cat["бассейн и сауна"]["total"] == 1
+
+    tags_by_name = {t["tag"]: t for t in by_cat["тренажёрный зал"]["tags"]}
+    assert tags_by_name["оборудование"] == {"tag": "оборудование", "total": 2, "positive": 1, "neutral": 0, "negative": 1}
+    assert tags_by_name["чистота"]["total"] == 1
+
+    # Сортировка: категория с бОльшим total — первая
+    assert tree[0]["category"] == "тренажёрный зал"
+
+
+def test_tag_counts_by_category_since_respects_period_bounds(conn):
+    now = datetime.now(timezone.utc)
+    db.seed_tag_dictionary(conn, [{"name": "цена", "category": "коммерция", "description": ""}])
+
+    def _review(external_id, days_old):
+        r = {"external_id": external_id, "author": None, "rating": 3, "text": "т",
+             "date": (now - timedelta(days=days_old)).isoformat()}
+        db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+        return conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+
+    fresh = _review("p1", days_old=1)
+    old = _review("p2", days_old=60)  # вне периода
+    db.insert_review_tag(conn, fresh, "цена", "negative", "evidence")
+    db.insert_review_tag(conn, old, "цена", "negative", "evidence")
+
+    since = (now - timedelta(days=7)).isoformat()
+    until = now.isoformat()
+    tree = db.get_tag_counts_by_category_since(conn, "loc1", since, until)
+
+    assert tree[0]["total"] == 1  # старый отзыв не попал
+
+
+def test_tag_counts_by_category_since_unknown_tag_falls_back_to_no_category(conn):
+    """Тег без записи в tag_dictionary (например отклонённый после разметки —
+    reject_tag не трогает уже размеченные review_tags) не должен пропадать из
+    дерева — падает в fallback "без категории", тот же паттерн, что уже
+    используется в webapp/app.py для отображения словаря тегов."""
+    now = datetime.now(timezone.utc)
+    r = {"external_id": "u1", "author": None, "rating": 3, "text": "т", "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+    review_id = conn.execute("SELECT id FROM reviews WHERE external_review_id='u1'").fetchone()["id"]
+    db.insert_review_tag(conn, review_id, "тег-сирота", "neutral", "evidence")
+
+    since = (now - timedelta(days=7)).isoformat()
+    until = now.isoformat()
+    tree = db.get_tag_counts_by_category_since(conn, "loc1", since, until)
+
+    assert tree[0]["category"] == "без категории"
+    assert tree[0]["tags"][0]["tag"] == "тег-сирота"
+
+
+def test_reviews_by_tag_since_includes_all_sentiments_and_period_bounds(conn):
+    """В отличие от get_reviews_for_tag_alert (только negative, окно алерта) —
+    дерево показывает разбивку по всем трём знакам, поэтому drill-down должен
+    отдавать отзывы любого знака тега, в границах ТЕКУЩЕГО периода дерева."""
+    now = datetime.now(timezone.utc)
+
+    def _review(external_id, days_old):
+        r = {"external_id": external_id, "author": "А", "rating": 5, "text": "т",
+             "date": (now - timedelta(days=days_old)).isoformat()}
+        db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+        return conn.execute("SELECT id FROM reviews WHERE external_review_id=?", (external_id,)).fetchone()["id"]
+
+    positive = _review("d1", days_old=1)
+    negative = _review("d2", days_old=2)
+    out_of_range = _review("d3", days_old=60)
+    db.insert_review_tag(conn, positive, "wifi", "positive", "evidence")
+    db.insert_review_tag(conn, negative, "wifi", "negative", "evidence")
+    db.insert_review_tag(conn, out_of_range, "wifi", "negative", "evidence")
+
+    since = (now - timedelta(days=7)).isoformat()
+    until = now.isoformat()
+    reviews = db.get_reviews_by_tag_since(conn, "loc1", "wifi", since, until)
+
+    ids = {r["id"] for r in reviews}
+    assert ids == {positive, negative}  # позитив включён, старый отзыв — нет
+
+
+def test_reviews_by_tag_since_dedupes_multi_evidence(conn):
+    """Один отзыв — одна карточка, даже если тег стоит на нескольких цитатах
+    (та же гарантия, что и у get_reviews_for_tag_alert)."""
+    now = datetime.now(timezone.utc)
+    r = {"external_id": "dup1", "author": None, "rating": 4, "text": "т", "date": now.isoformat()}
+    db.insert_review_if_new(conn, "loc1", "yandex_maps", r)
+    review_id = conn.execute("SELECT id FROM reviews WHERE external_review_id='dup1'").fetchone()["id"]
+    db.insert_review_tag(conn, review_id, "сервис", "negative", "первая цитата")
+    db.insert_review_tag(conn, review_id, "сервис", "negative", "вторая цитата")
+
+    since = (now - timedelta(days=7)).isoformat()
+    until = now.isoformat()
+    reviews = db.get_reviews_by_tag_since(conn, "loc1", "сервис", since, until)
+
+    assert len(reviews) == 1
+
+
 def test_alerts_opened_and_resolved_since(conn):
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=7)).isoformat()

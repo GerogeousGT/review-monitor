@@ -761,6 +761,100 @@ def get_review_sentiment_counts_by_period(
     return sorted(buckets.values(), key=lambda b: b["period"])
 
 
+def get_tag_counts_by_category_since(
+    conn: sqlite3.Connection, location_id: str, since_iso: str, until_iso: str
+) -> list[dict]:
+    """Полное дерево категория→тег за период (2026-07-20, заменяет плоские топ-3
+    "Хвалят"/"Ругают" на дашборде — см. PLAN.md "Иерархический дашборд по
+    категориям тегов"). В отличие от get_top_tags_by_sentiment_since: не топ-N,
+    без порога min_count (там он специально отсекал шум для короткого списка,
+    здесь цель — показать полную картину, включая единичные упоминания), и не
+    режет по знаку — каждый тег несёт свою разбивку positive/neutral/negative
+    сразу (один и тот же тег может быть и похвален, и поруган в разных отзывах).
+
+    Категория берётся из ТЕКУЩЕГО tag_dictionary (LEFT JOIN), не из момента
+    простановки тега — если тег позже перекатегоризировали, старые отзывы
+    показываются под новой категорией (категория — свойство тега, не отзыва).
+    Тег, которого больше нет в active-словаре (отклонён после разметки — см.
+    reject_tag, он не трогает уже размеченные review_tags), попадает в "без
+    категории" — тот же fallback, что уже используется в webapp/app.py для
+    отображения словаря тегов.
+
+    Возвращает список категорий (сортировка по total убыв.), в каждой — список
+    тегов (тоже по total убыв.):
+    [{"category": ..., "total": N, "positive": N, "neutral": N, "negative": N,
+      "tags": [{"tag": ..., "total": N, "positive": N, "neutral": N, "negative": N}, ...]}, ...]"""
+    since_dt = parse_review_date(since_iso)
+    until_dt = parse_review_date(until_iso)
+    rows = conn.execute(
+        """SELECT rt.tag, rt.tag_sentiment, td.category, r.review_date
+           FROM review_tags rt
+           JOIN reviews r ON rt.review_id = r.id
+           LEFT JOIN tag_dictionary td ON td.tag = rt.tag
+           WHERE r.location_id = ? AND r.review_date IS NOT NULL""",
+        (location_id,),
+    ).fetchall()
+
+    categories: dict[str, dict] = {}
+    for row in rows:
+        if row["tag_sentiment"] not in ("positive", "neutral", "negative"):
+            continue
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if dt < since_dt or dt > until_dt:
+            continue
+
+        category = row["category"] or "без категории"
+        cat_bucket = categories.setdefault(
+            category, {"category": category, "total": 0, "positive": 0, "neutral": 0, "negative": 0, "tags": {}}
+        )
+        cat_bucket["total"] += 1
+        cat_bucket[row["tag_sentiment"]] += 1
+
+        tag_bucket = cat_bucket["tags"].setdefault(
+            row["tag"], {"tag": row["tag"], "total": 0, "positive": 0, "neutral": 0, "negative": 0}
+        )
+        tag_bucket["total"] += 1
+        tag_bucket[row["tag_sentiment"]] += 1
+
+    result = []
+    for cat_bucket in categories.values():
+        cat_bucket["tags"] = sorted(cat_bucket["tags"].values(), key=lambda t: t["total"], reverse=True)
+        result.append(cat_bucket)
+    return sorted(result, key=lambda c: c["total"], reverse=True)
+
+
+def get_reviews_by_tag_since(
+    conn: sqlite3.Connection, location_id: str, tag: str, since_iso: str, until_iso: str
+) -> list[dict]:
+    """Drill-down "тег в дереве категорий → сырые отзывы" за ТОТ ЖЕ период, что
+    выбран для дерева (в отличие от get_reviews_for_tag_alert — тот привязан к
+    window_days алерта и фильтрует только negative, здесь нужны отзывы любого
+    знака тега, раз дерево показывает разбивку по всем трём). Один отзыв — одна
+    карточка, даже если тег стоит на нескольких цитатах (см. _dedupe_reviews_by_id)."""
+    since_dt = parse_review_date(since_iso)
+    until_dt = parse_review_date(until_iso)
+    rows = conn.execute(
+        """SELECT r.id, r.author, r.rating, r.text, r.platform, r.review_date, rt.tag_evidence
+           FROM reviews r JOIN review_tags rt ON rt.review_id = r.id
+           WHERE r.location_id = ? AND rt.tag = ? AND r.review_date IS NOT NULL""",
+        (location_id, tag),
+    ).fetchall()
+
+    result = []
+    for row in _dedupe_reviews_by_id(rows):
+        try:
+            dt = parse_review_date(row["review_date"])
+        except (ValueError, AttributeError):
+            continue
+        if since_dt <= dt <= until_dt:
+            result.append(row)
+    result.sort(key=lambda r: r["review_date"], reverse=True)
+    return result
+
+
 def get_platform_comparison_since(conn: sqlite3.Connection, location_id: str, since_iso: str) -> list[dict]:
     """Объём и доля негатива по площадке за период — "куда направить усилия по
     ответам" (см. PLAN.md, документ Perplexity — Platform Comparison). Фильтрация по

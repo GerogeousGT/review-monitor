@@ -139,17 +139,48 @@
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
 
-  .tag-rank { display: flex; flex-direction: column; gap: 8px; }
-  .tag-rank-item {
-    display: flex;
-    justify-content: space-between;
+  /* Дерево категория→тег (2026-07-20) — те же имена классов/паттерн сворачивания,
+     что и на вкладке "Словарь тегов" (dashboard_tags.html), для единого визуального
+     языка; расширено мини-разбивкой по тональности на каждом уровне. */
+  .tag-tree { display: flex; flex-direction: column; gap: 10px; }
+  .tag-category {
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 0.875rem;
+    border-radius: 12px;
+    overflow: hidden;
   }
-  .tag-rank-item .count { color: var(--text-dim); }
+  .tag-category-toggle {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 13px 18px; cursor: pointer;
+    background: none; border: none; color: inherit; text-align: left; font: inherit;
+  }
+  .tag-category-toggle:hover { background: rgba(255,255,255,0.02); }
+  .tag-category-chevron {
+    color: var(--text-dim); font-size: 0.75rem;
+    transition: transform 0.15s ease; flex-shrink: 0;
+  }
+  .tag-category.open .tag-category-chevron { transform: rotate(90deg); }
+  .tag-category-name { font-weight: 700; font-size: 0.875rem; }
+  .tag-category-count { color: var(--text-dim); font-weight: 500; font-variant-numeric: tabular-nums; margin-left: auto; font-size: 0.8125rem; }
+  .tag-category-body { display: none; padding: 0 18px 14px; }
+  .tag-category.open .tag-category-body { display: block; }
+
+  .cat-tag-list { display: flex; flex-direction: column; gap: 6px; }
+  .cat-tag-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    border: 1px solid transparent;
+  }
+  .cat-tag-row:hover { background: rgba(255,255,255,0.05); border-color: var(--accent-2); }
+  .cat-tag-row .tag-name { font-weight: 600; font-size: 0.8125rem; }
+  .cat-tag-row .cat-tag-total { color: var(--text-dim); font-size: 0.8125rem; margin-left: auto; font-variant-numeric: tabular-nums; }
+
+  .sentiment-mini { display: flex; gap: 6px; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .sentiment-mini .mini.positive { color: var(--accent); }
+  .sentiment-mini .mini.neutral { color: #e0b84c; }
+  .sentiment-mini .mini.negative { color: var(--danger); }
 
   table.platform-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
   table.platform-table th {
@@ -256,15 +287,21 @@
   <div class="period-tabs">
     {% for key, preset in period_presets.items() %}
     <a class="period-tab {% if key == period_key %}active{% endif %}"
-       href="{{ url_for('dashboard', slug=slug) }}?period={{ key }}">{{ preset.title }}</a>
+       href="{{ url_for('dashboard', slug=slug) }}?period={{ key }}&cat_period={{ cat_period_key }}&cat_since={{ cat_custom_since_value }}&cat_until={{ cat_custom_until_value }}">{{ preset.title }}</a>
     {% endfor %}
     <a class="period-tab {% if period_key == 'custom' %}active{% endif %}"
        onclick="document.getElementById('customRangeForm').classList.toggle('open'); return false;"
        href="#">Свой диапазон</a>
   </div>
+  {# cat_period/cat_since/cat_until — состояние блока "Темы по категориям" ниже, эхом в
+     скрытых полях, чтобы смена периода графика не сбрасывала период дерева (2026-07-20,
+     секции работают с разной частотой смены диапазона — Жорж отдельно попросил). #}
   <form id="customRangeForm" class="custom-range-form {% if period_key == 'custom' %}open{% endif %}"
         method="get" action="{{ url_for('dashboard', slug=slug) }}">
     <input type="hidden" name="period" value="custom">
+    <input type="hidden" name="cat_period" value="{{ cat_period_key }}">
+    <input type="hidden" name="cat_since" value="{{ cat_custom_since_value }}">
+    <input type="hidden" name="cat_until" value="{{ cat_custom_until_value }}">
     <label>с <input type="date" name="since" value="{{ custom_since_value }}"></label>
     <label>по <input type="date" name="until" value="{{ custom_until_value }}"></label>
     <button type="submit">Показать</button>
@@ -368,31 +405,62 @@
   {% endif %}
 </div>
 
-<div class="two-col section">
-  <div>
-    <h2>Что хвалят</h2>
-    {% if top_praised %}
-    <div class="tag-rank">
-      {% for t in top_praised %}
-      <div class="tag-rank-item"><span>{{ t.tag }}</span><span class="count">{{ t.count }}</span></div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-note">Недостаточно данных.</div>
-    {% endif %}
+<div class="section" id="tag-categories">
+  <h2>Темы по категориям</h2>
+  <div class="period-tabs">
+    {% for key, preset in period_presets.items() %}
+    <a class="period-tab {% if key == cat_period_key %}active{% endif %}"
+       href="{{ url_for('dashboard', slug=slug) }}?cat_period={{ key }}&period={{ period_key }}&since={{ custom_since_value }}&until={{ custom_until_value }}">{{ preset.title }}</a>
+    {% endfor %}
+    <a class="period-tab {% if cat_period_key == 'custom' %}active{% endif %}"
+       onclick="document.getElementById('catCustomRangeForm').classList.toggle('open'); return false;"
+       href="#">Свой диапазон</a>
   </div>
-  <div>
-    <h2>Что ругают</h2>
-    {% if top_criticized %}
-    <div class="tag-rank">
-      {% for t in top_criticized %}
-      <div class="tag-rank-item"><span>{{ t.tag }}</span><span class="count">{{ t.count }}</span></div>
-      {% endfor %}
+  <form id="catCustomRangeForm" class="custom-range-form {% if cat_period_key == 'custom' %}open{% endif %}"
+        method="get" action="{{ url_for('dashboard', slug=slug) }}">
+    <input type="hidden" name="cat_period" value="custom">
+    <input type="hidden" name="period" value="{{ period_key }}">
+    <input type="hidden" name="since" value="{{ custom_since_value }}">
+    <input type="hidden" name="until" value="{{ custom_until_value }}">
+    <label>с <input type="date" name="cat_since" value="{{ cat_custom_since_value }}"></label>
+    <label>по <input type="date" name="cat_until" value="{{ cat_custom_until_value }}"></label>
+    <button type="submit">Показать</button>
+  </form>
+  {% if category_tag_tree %}
+  <div class="tag-tree">
+    {% for cat in category_tag_tree %}
+    <div class="tag-category">
+      <button type="button" class="tag-category-toggle">
+        <span class="tag-category-chevron">▸</span>
+        <span class="tag-category-name">{{ cat.category }}</span>
+        <span class="sentiment-mini">
+          {% if cat.positive %}<span class="mini positive">🟢{{ cat.positive }}</span>{% endif %}
+          {% if cat.neutral %}<span class="mini neutral">🟡{{ cat.neutral }}</span>{% endif %}
+          {% if cat.negative %}<span class="mini negative">🔴{{ cat.negative }}</span>{% endif %}
+        </span>
+        <span class="tag-category-count">{{ cat.total }}</span>
+      </button>
+      <div class="tag-category-body">
+        <div class="cat-tag-list">
+          {% for t in cat.tags %}
+          <div class="cat-tag-row" data-tag="{{ t.tag }}">
+            <span class="tag-name">{{ t.tag }}</span>
+            <span class="sentiment-mini">
+              {% if t.positive %}<span class="mini positive">🟢{{ t.positive }}</span>{% endif %}
+              {% if t.neutral %}<span class="mini neutral">🟡{{ t.neutral }}</span>{% endif %}
+              {% if t.negative %}<span class="mini negative">🔴{{ t.negative }}</span>{% endif %}
+            </span>
+            <span class="cat-tag-total">{{ t.total }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
     </div>
-    {% else %}
-    <div class="empty-note">Недостаточно данных.</div>
-    {% endif %}
+    {% endfor %}
   </div>
+  {% else %}
+  <div class="empty-note">Отзывов с тегами за этот период нет.</div>
+  {% endif %}
 </div>
 
 <div class="section">
@@ -455,6 +523,41 @@
       .then(html => { body.innerHTML = html; })
       .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзывы.</div>'; });
   }
+
+  // Дерево категория→тег: та же модалка, что у алертов — тег за период,
+  // выбранный СВОИМ блоком табов над деревом (cat_since/cat_until, независимо
+  // от периода графика тональности — см. app.py и комментарий у блока табов
+  // дерева выше).
+  const treeSince = {{ cat_since|tojson }};
+  const treeUntil = {{ cat_until|tojson }};
+
+  function openTagModal(tag) {
+    const overlay = document.getElementById('alertModal');
+    const body = document.getElementById('alertModalBody');
+    document.getElementById('alertModalTitle').textContent = tag;
+    body.innerHTML = '<div class="modal-loading">Загрузка&hellip;</div>';
+    overlay.classList.add('open');
+
+    const url = `{{ url_for('dashboard', slug=slug) }}/tag/${encodeURIComponent(tag)}/reviews`
+      + `?since=${encodeURIComponent(treeSince)}&until=${encodeURIComponent(treeUntil)}`;
+    fetch(url)
+      .then(r => r.text())
+      .then(html => { body.innerHTML = html; })
+      .catch(() => { body.innerHTML = '<div class="modal-empty">Не удалось загрузить отзывы.</div>'; });
+  }
+
+  document.querySelectorAll('.tag-category').forEach(function (cat, i) {
+    if (i === 0) cat.classList.add('open');
+    cat.querySelector('.tag-category-toggle').addEventListener('click', function () {
+      cat.classList.toggle('open');
+    });
+  });
+
+  document.querySelectorAll('.cat-tag-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      openTagModal(row.dataset.tag);
+    });
+  });
 
   function closeAlertModal() {
     document.getElementById('alertModal').classList.remove('open');

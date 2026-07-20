@@ -283,6 +283,24 @@ def dashboard(slug: str):
     custom_since_value = custom_since_raw if period_key == "custom" else since_period[:10]
     custom_until_value = custom_until_raw if period_key == "custom" else until_period[:10]
 
+    # Дерево категория→тег (2026-07-20, независимый период — правка тем же днём) —
+    # СВОЙ выбор периода (cat_*), отдельный от периода графика тональности выше
+    # (since_period/until_period). Изначально сделали общим на одном блоке табов,
+    # но Жорж поправил: при разборе тегов неудобно каждый раз скроллить наверх,
+    # чтобы сменить диапазон именно для дерева — секции листаются с разной
+    # частотой. Каждый блок табов протаскивает ТЕКУЩИЕ значения ДРУГОГО блока в
+    # свои ссылки/скрытые поля (см. dashboard.html) — переключение одного не
+    # сбрасывает состояние другого.
+    cat_custom_since_raw = request.args.get("cat_since", "")
+    cat_custom_until_raw = request.args.get("cat_until", "")
+    requested_cat_period_key = request.args.get("cat_period", DEFAULT_PERIOD)
+    cat_since, cat_until, _, cat_period_key = period.resolve_period(
+        requested_cat_period_key, cat_custom_since_raw, cat_custom_until_raw
+    )
+    cat_custom_since_value = cat_custom_since_raw if cat_period_key == "custom" else cat_since[:10]
+    cat_custom_until_value = cat_custom_until_raw if cat_period_key == "custom" else cat_until[:10]
+    category_tag_tree = core_db.get_tag_counts_by_category_since(conn, location_id, cat_since, cat_until)
+
     all_active_alerts = core_db.get_all_active_alerts(conn)
     tag_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "tag"]
     zone_alerts = [dict(a) for a in all_active_alerts if a["alert_type"] == "zone"]
@@ -295,8 +313,6 @@ def dashboard(slug: str):
     overdue_recent = core_db.get_overdue_reviews(conn)
     overdue_stale = core_db.get_stale_overdue_reviews(conn)
 
-    top_praised = core_db.get_top_tags_by_sentiment_since(conn, location_id, since_month, "positive")
-    top_criticized = core_db.get_top_tags_by_sentiment_since(conn, location_id, since_month, "negative")
     platform_comparison = core_db.get_platform_comparison_since(conn, location_id, since_month)
     hidden_problems = core_db.get_hidden_problems(conn, location_id)
 
@@ -323,8 +339,14 @@ def dashboard(slug: str):
         period_presets=PERIOD_PRESETS,
         custom_since_value=custom_since_value,
         custom_until_value=custom_until_value,
-        top_praised=top_praised,
-        top_criticized=top_criticized,
+        since_period=since_period,
+        until_period=until_period,
+        category_tag_tree=category_tag_tree,
+        cat_since=cat_since,
+        cat_until=cat_until,
+        cat_period_key=cat_period_key,
+        cat_custom_since_value=cat_custom_since_value,
+        cat_custom_until_value=cat_custom_until_value,
         platform_comparison=platform_comparison,
         hidden_problems=hidden_problems,
     )
@@ -634,6 +656,46 @@ def alert_reviews_fragment(slug: str, alert_id: int):
 
     conn.close()
     return render_template("_alert_reviews_fragment.html", reviews=reviews, title=title)
+
+
+@app.route("/dashboard/<slug>/tag/<tag>/reviews")
+@login_required
+def tag_reviews_fragment(slug: str, tag: str):
+    """Drill-down "тег в дереве категорий → сырые отзывы" (2026-07-20) — тот же
+    паттерн HTML-фрагмента, что и alert_reviews_fragment. since/until — ТЕ ЖЕ
+    границы периода, что дерево показывало на странице (передаются из JS как
+    query-параметры, см. dashboard.html: openTagModal); при их отсутствии/битом
+    формате (ручной заход на URL без JS) — тихий откат на дефолтный период, та
+    же логика, что и у самого графика/дерева (period.resolve_period), не 400."""
+    db_path = _require_client_access(slug)
+    if db_path is None:
+        return "Доступ запрещён", 403
+
+    since_raw = request.args.get("since", "")
+    until_raw = request.args.get("until", "")
+    if since_raw and until_raw:
+        since_iso, until_iso = since_raw, until_raw
+    else:
+        since_iso, until_iso, _, _ = period.resolve_period(DEFAULT_PERIOD)
+
+    conn = core_db.get_connection(db_path=db_path)
+    core_db.init_db(conn)
+    location_id = _primary_location_id(conn)
+
+    if location_id is None:
+        conn.close()
+        return render_template("_alert_reviews_fragment.html", reviews=[], title=tag)
+
+    try:
+        reviews = core_db.get_reviews_by_tag_since(conn, location_id, tag, since_iso, until_iso)
+    except (ValueError, AttributeError):
+        reviews = []
+
+    for r in reviews:
+        r["platform_label"] = PLATFORM_LABELS.get(r["platform"], r["platform"])
+
+    conn.close()
+    return render_template("_alert_reviews_fragment.html", reviews=reviews, title=tag)
 
 
 @app.route("/telegram/webhook/<slug>", methods=["POST"])
