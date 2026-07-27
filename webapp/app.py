@@ -29,6 +29,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import auth_db
 import charts
+import competitors
 import period
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -470,6 +471,46 @@ def dashboard_tags(slug: str):
         all_categories=all_categories,
         pending_tags=pending_tags,
         active_tags_flat=active_tags_flat,
+    )
+
+
+@app.route("/dashboard/<slug>/competitors")
+@login_required
+def dashboard_competitors(slug: str):
+    """Конкурентная разведка (2026-07-27) — данные вне основной БД, см.
+    webapp/competitors.py и PLAN.md. Не использует _require_client_access
+    (та требует существования reviews.db — конкуренты от неё не зависят),
+    только проверка видимости клиента."""
+    if slug not in _visible_clients(current_user):
+        return "Доступ запрещён", 403
+
+    client_dir = CLIENTS_DIR / slug
+    competitors_list = competitors.list_competitors(client_dir)
+
+    requested = request.args.get("competitor", "")
+    active_slug = requested if any(c["slug"] == requested for c in competitors_list) else (
+        competitors_list[0]["slug"] if competitors_list else None
+    )
+
+    competitor = None
+    tag_summary = []
+    sentiment = {"positive": 0, "neutral": 0, "negative": 0}
+    if active_slug:
+        competitor = competitors.load_competitor(client_dir, active_slug)
+        if competitor:
+            tag_summary = competitors.aggregate_tags(competitor["reviews"])
+            sentiment = competitors.sentiment_totals(competitor["reviews"])
+
+    return render_template(
+        "dashboard_competitors.html",
+        slug=slug,
+        display_name=_client_display_name(slug),
+        no_data=False,
+        competitors_list=competitors_list,
+        active_slug=active_slug,
+        competitor=competitor,
+        tag_summary=tag_summary,
+        sentiment=sentiment,
     )
 
 

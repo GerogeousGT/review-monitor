@@ -1,0 +1,246 @@
+{% extends "dashboard_base.html" %}
+{% block title %}{{ display_name }} — Конкуренты{% endblock %}
+{% set active_tab = 'competitors' %}
+{% block dashboard_content %}
+<style>
+  h2 { font-size: 1.0625rem; letter-spacing: -0.01em; margin-bottom: 14px; }
+
+  .comp-tabs { display: flex; gap: 6px; margin-bottom: 22px; flex-wrap: wrap; }
+  .comp-tab {
+    padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-dim); text-decoration: none;
+    font-size: 0.8125rem; font-weight: 600;
+  }
+  .comp-tab:hover { color: var(--text); }
+  .comp-tab.active { color: var(--text); border-color: var(--accent-2); background: var(--surface); }
+
+  .comp-meta { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 24px; }
+  .comp-meta a { color: var(--accent-2); }
+
+  .summary-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .summary-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .summary-card .num { font-size: 1.75rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .summary-card .label { color: var(--text-dim); font-size: 0.8125rem; margin-top: 6px; }
+  .summary-card.pos .num { color: var(--accent); }
+  .summary-card.neg .num { color: var(--danger); }
+  .summary-card.neu .num { color: #e0b84c; }
+
+  .section { margin-bottom: 36px; }
+
+  table.tagtable { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  table.tagtable th {
+    text-align: left; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--text-dim); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border);
+  }
+  table.tagtable td { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+  table.tagtable tr.tag-row { cursor: pointer; transition: background 0.12s; }
+  table.tagtable tr.tag-row:hover { background: var(--surface-2); }
+  table.tagtable td.tag { font-weight: 600; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar { flex: 1; height: 7px; border-radius: 4px; overflow: hidden; display: flex; background: rgba(255,255,255,0.05); min-width: 60px; }
+  .bar span { display: block; height: 100%; }
+  .bar .p { background: var(--accent); }
+  .bar .n { background: var(--danger); }
+  .bar .u { background: #e0b84c; }
+  .table-scroll { overflow-x: auto; }
+
+  .feed-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .pill {
+    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2);
+    color: var(--text-dim); font-size: 0.8125rem; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .pill:hover { color: var(--text); }
+  .pill.active { color: var(--text); border-color: var(--accent-2); background: var(--surface); }
+  .tag-filter-note { display: none; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--text-dim); margin: 0 0 14px; }
+  .tag-filter-note.on { display: flex; }
+  .tag-filter-note button {
+    background: none; border: 1px solid var(--border); border-radius: 999px;
+    color: var(--text-dim); font-size: 0.75rem; padding: 3px 10px; cursor: pointer; font-family: inherit;
+  }
+  .feed-count { color: var(--text-dim); font-size: 0.8125rem; margin-bottom: 14px; }
+
+  .review-feed { display: flex; flex-direction: column; gap: 10px; }
+  .review-card { background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .review-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.8125rem; color: var(--text-dim); flex-wrap: wrap; }
+  .review-head .stars { color: #e0b84c; }
+  .review-head .author { font-weight: 600; color: var(--text); }
+  .review-head .rsent { margin-left: auto; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .review-head .rsent.positive { background: var(--accent); }
+  .review-head .rsent.negative { background: var(--danger); }
+  .review-head .rsent.neutral { background: #e0b84c; }
+  .review-text { font-size: 0.875rem; line-height: 1.5; margin-bottom: 10px; white-space: pre-wrap; }
+  .review-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .review-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid var(--border); cursor: pointer; font-family: inherit; }
+  .review-tag.positive { color: var(--accent); border-color: rgba(94,234,168,0.3); }
+  .review-tag.negative { color: var(--danger); border-color: rgba(234,94,110,0.3); }
+  .review-tag.neutral { color: #e0b84c; border-color: rgba(224,184,76,0.3); }
+
+  .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 20px 0; }
+</style>
+
+{% if not competitors_list %}
+<div class="empty-note">
+  Пока нет ни одного конкурента для этого клиента. Данные добавляются вручную —
+  разовый сбор через <code>collectors/</code>, файл в <code>clients/{{ slug }}/competitors/&lt;slug&gt;.json</code>.
+</div>
+{% else %}
+
+<div class="comp-tabs">
+  {% for c in competitors_list %}
+  <a class="comp-tab {% if c.slug == active_slug %}active{% endif %}"
+     href="{{ url_for('dashboard_competitors', slug=slug) }}?competitor={{ c.slug }}">{{ c.name }}</a>
+  {% endfor %}
+</div>
+
+{% if competitor %}
+<div class="comp-meta">
+  Источник: {{ platform_labels.get(competitor.platform, competitor.platform) if platform_labels else competitor.platform }}
+  {% if competitor.url %}· <a href="{{ competitor.url }}" target="_blank" rel="noopener">открыть площадку</a>{% endif %}
+  {% if competitor.collected_at %}· собрано {{ competitor.collected_at }}{% endif %}
+  · {{ competitor.reviews|length }} отзывов
+</div>
+
+<div class="summary-row">
+  <div class="summary-card pos"><div class="num">{{ sentiment.positive }}</div><div class="label">🟢 позитив</div></div>
+  <div class="summary-card neg"><div class="num">{{ sentiment.negative }}</div><div class="label">🔴 негатив</div></div>
+  <div class="summary-card neu"><div class="num">{{ sentiment.neutral }}</div><div class="label">🟡 нейтральные</div></div>
+</div>
+
+<div class="section">
+  <h2>Темы</h2>
+  {% if tag_summary %}
+  <div class="table-scroll">
+  <table class="tagtable">
+    <tr><th>Тег</th><th>Всего</th><th>Разбивка</th></tr>
+    {% for t in tag_summary %}
+    <tr class="tag-row" data-tag="{{ t.tag }}">
+      <td class="tag">{{ t.tag }}</td>
+      <td>{{ t.total }}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="bar">
+            {% if t.positive %}<span class="p" style="width:{{ (t.positive / t.total * 100)|round }}%"></span>{% endif %}
+            {% if t.neutral %}<span class="u" style="width:{{ (t.neutral / t.total * 100)|round }}%"></span>{% endif %}
+            {% if t.negative %}<span class="n" style="width:{{ (t.negative / t.total * 100)|round }}%"></span>{% endif %}
+          </div>
+          <span>{% if t.positive %}🟢{{ t.positive }} {% endif %}{% if t.neutral %}🟡{{ t.neutral }} {% endif %}{% if t.negative %}🔴{{ t.negative }}{% endif %}</span>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="empty-note" style="padding: 8px 0 0;">Клик по строке — фильтрует ленту отзывов ниже.</p>
+  {% else %}
+  <div class="empty-note">Тегов нет.</div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h2 id="feed">Лента отзывов</h2>
+  <div class="feed-controls">
+    <button class="pill active" data-filter="all">Все ({{ competitor.reviews|length }})</button>
+    <button class="pill" data-filter="positive">🟢 Позитив</button>
+    <button class="pill" data-filter="negative">🔴 Негатив</button>
+    <button class="pill" data-filter="neutral">🟡 Нейтральные</button>
+  </div>
+  <div class="tag-filter-note" id="tagFilterNote">
+    Фильтр по тегу: <b id="tagFilterLabel"></b>
+    <button id="tagFilterClear">✕ сбросить</button>
+  </div>
+  <div class="feed-count" id="feedCount"></div>
+  <div class="review-feed" id="reviewFeed"></div>
+</div>
+
+<script>
+(function () {
+  var REVIEWS = {{ competitor.reviews | tojson }};
+  var state = { sentiment: 'all', tag: null };
+
+  function starStr(n) {
+    n = n || 0;
+    return '★'.repeat(n) + '☆'.repeat(5 - n);
+  }
+
+  function render() {
+    var list = REVIEWS.filter(function (r) {
+      if (state.sentiment !== 'all' && r.sentiment !== state.sentiment) return false;
+      if (state.tag && !(r.tags || []).some(function (t) { return t.tag === state.tag; })) return false;
+      return true;
+    });
+
+    document.getElementById('feedCount').textContent = list.length + ' из ' + REVIEWS.length + ' отзывов';
+
+    var feed = document.getElementById('reviewFeed');
+    if (list.length === 0) {
+      feed.innerHTML = '<div class="empty-note">Ничего не найдено под эти фильтры.</div>';
+      return;
+    }
+
+    feed.innerHTML = list.map(function (r) {
+      var tags = (r.tags || []).map(function (t) {
+        return '<button type="button" class="review-tag ' + t.s + '" data-tag="' + t.tag.replace(/"/g, '&quot;') + '">' + t.tag + '</button>';
+      }).join('');
+      var author = document.createElement('div'); author.textContent = r.author || 'без имени';
+      var text = document.createElement('div'); text.textContent = r.text || '(без текста)';
+      return '<div class="review-card">' +
+        '<div class="review-head">' +
+          '<span class="stars">' + starStr(r.rating) + '</span>' +
+          '<span class="author">' + author.innerHTML + '</span>' +
+          '<span>&middot;</span><span>' + (r.date || '') + '</span>' +
+          '<span class="rsent ' + r.sentiment + '" title="' + r.sentiment + '"></span>' +
+        '</div>' +
+        '<div class="review-text">' + text.innerHTML + '</div>' +
+        (tags ? '<div class="review-tags">' + tags + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  document.querySelectorAll('.pill[data-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.sentiment = btn.dataset.filter;
+      document.querySelectorAll('.pill[data-filter]').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      render();
+    });
+  });
+
+  function setTagFilter(tag) {
+    state.tag = tag;
+    var note = document.getElementById('tagFilterNote');
+    if (tag) {
+      note.classList.add('on');
+      document.getElementById('tagFilterLabel').textContent = tag;
+    } else {
+      note.classList.remove('on');
+    }
+    render();
+  }
+
+  document.querySelectorAll('tr.tag-row').forEach(function (row) {
+    row.addEventListener('click', function () {
+      setTagFilter(row.dataset.tag);
+      document.getElementById('feed').scrollIntoView({ block: 'start' });
+    });
+  });
+
+  document.getElementById('tagFilterClear').addEventListener('click', function () { setTagFilter(null); });
+
+  document.getElementById('reviewFeed').addEventListener('click', function (e) {
+    var btn = e.target.closest('.review-tag');
+    if (btn) {
+      setTagFilter(btn.dataset.tag);
+      document.getElementById('feed').scrollIntoView({ block: 'start' });
+    }
+  });
+
+  render();
+})();
+</script>
+
+{% else %}
+<div class="empty-note">Не удалось загрузить данные конкурента (битый файл?).</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
