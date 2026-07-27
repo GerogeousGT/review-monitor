@@ -5,6 +5,7 @@ __pycache__/
 clients/*/.env
 clients/*/db/
 clients/*/telegram_offset.json
+clients/*/competitors/
 webapp/users.db
 webapp/.venv/
 webapp/.venv_test/
