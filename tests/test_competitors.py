@@ -39,6 +39,19 @@ def test_list_competitors_skips_broken_json(tmp_path):
     assert [c["slug"] for c in result] == ["good"]
 
 
+def test_list_competitors_skips_valid_json_wrong_shape(tmp_path):
+    """Регрессия (2026-07-27): в той же папке оказались промежуточные файлы
+    сбора (сырой список отзывов, не {"name":...,"reviews":...}) — валидный
+    JSON, но список, а не словарь. .get() на списке падает с AttributeError,
+    роняя всю страницу "Конкуренты" — найдено на реальном проде до деплоя."""
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "raw_scrape.json").write_text('[{"author": "А", "text": "..."}]', encoding="utf-8")
+    _write_competitor(tmp_path, "good", "Good Gym", [])
+    result = competitors.list_competitors(tmp_path)
+    assert [c["slug"] for c in result] == ["good"]
+
+
 def test_load_competitor_returns_none_when_missing(tmp_path):
     assert competitors.load_competitor(tmp_path, "nope") is None
 
@@ -48,6 +61,21 @@ def test_load_competitor_returns_full_document(tmp_path):
     doc = competitors.load_competitor(tmp_path, "black_fit")
     assert doc["name"] == "Black Fit"
     assert doc["reviews"] == [{"author": "А", "rating": 5}]
+
+
+def test_load_competitor_returns_none_for_wrong_shape(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "raw_scrape.json").write_text('[{"author": "А"}]', encoding="utf-8")
+    assert competitors.load_competitor(tmp_path, "raw_scrape") is None
+
+
+def test_load_competitor_defaults_missing_reviews_to_empty_list(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "no_reviews.json").write_text('{"name": "X"}', encoding="utf-8")
+    doc = competitors.load_competitor(tmp_path, "no_reviews")
+    assert doc["reviews"] == []
 
 
 def test_aggregate_tags_sums_by_sentiment():

@@ -28,6 +28,8 @@ def list_competitors(client_dir: Path) -> list[dict]:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             continue
+        if not isinstance(data, dict):
+            continue  # чужой/промежуточный json в той же папке (например сырой список отзывов) — не наш формат
         result.append({"slug": path.stem, "name": data.get("name", path.stem)})
     return result
 
@@ -38,9 +40,13 @@ def load_competitor(client_dir: Path, competitor_slug: str) -> dict | None:
         return None
     try:
         with path.open(encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+    if not isinstance(data, dict):
+        return None
+    data.setdefault("reviews", [])
+    return data
 
 
 def aggregate_tags(reviews: list[dict]) -> list[dict]:
