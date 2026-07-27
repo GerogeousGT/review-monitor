@@ -76,6 +76,29 @@
   .review-tag.neutral { color: #e0b84c; border-color: rgba(224,184,76,0.3); }
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 20px 0; }
+
+  /* Независимый разбор (2026-07-27) — темы + цитаты-пруфы, не только теговый счётчик */
+  .theme-block { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+  .theme-block h4 { margin: 0 0 4px; font-size: 0.9375rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .theme-block h4 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .theme-block h4 .dot.pos { background: var(--accent); }
+  .theme-block h4 .dot.neg { background: var(--danger); }
+  .theme-block .freq { color: var(--text-dim); font-size: 0.75rem; font-weight: 400; }
+  .theme-block .note { color: var(--text-dim); font-size: 0.8125rem; margin: 6px 0 10px; }
+  .theme-block blockquote {
+    margin: 8px 0; padding: 10px 14px; background: rgba(0,0,0,0.15);
+    border-left: 3px solid var(--accent-2); border-radius: 0 8px 8px 0; font-size: 0.875rem;
+  }
+  .theme-block blockquote cite { display: block; font-style: normal; color: var(--text-dim); font-size: 0.75rem; margin-top: 4px; }
+
+  .names { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; }
+  .name-chip { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 0.8125rem; }
+
+  .verdict {
+    background: var(--surface-2); border: 1px solid var(--accent-2); border-radius: 12px;
+    padding: 18px 20px; margin-top: 6px; font-size: 0.875rem; line-height: 1.55;
+  }
+  .verdict-label { color: var(--accent-2); font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
 </style>
 
 {% if not competitors_list %}
@@ -135,6 +158,52 @@
   <div class="empty-note">Тегов нет.</div>
   {% endif %}
 </div>
+
+{% if competitor.synthesis %}
+<div class="section">
+  <h2>Независимый разбор <span style="color:var(--text-dim); font-weight:400; font-size:0.8125rem;">— темы и цитаты, не только счётчик тегов</span></h2>
+
+  {% if competitor.synthesis.praised %}
+  <h3 style="font-size: 0.9375rem; margin: 18px 0 10px;">Хвалят</h3>
+  {% for item in competitor.synthesis.praised %}
+  <div class="theme-block">
+    <h4><span class="dot pos"></span>{{ item.title }}</h4>
+    {% if item.note %}<div class="note">{{ item.note }}</div>{% endif %}
+    {% for q in item.quotes %}
+    <blockquote>«{{ q.text }}»<cite>{% if q.author %}{{ q.author }}, {% endif %}{{ q.meta }}</cite></blockquote>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if competitor.synthesis.named_staff %}
+  <div class="names">
+    {% for name in competitor.synthesis.named_staff %}
+    <span class="name-chip">{{ name }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% if competitor.synthesis.complaints %}
+  <h3 style="font-size: 0.9375rem; margin: 24px 0 10px;">Ругают</h3>
+  {% for item in competitor.synthesis.complaints %}
+  <div class="theme-block">
+    <h4><span class="dot neg"></span>{{ item.title }}{% if item.freq %}<span class="freq">— {{ item.freq }}</span>{% endif %}</h4>
+    {% if item.note %}<div class="note">{{ item.note }}</div>{% endif %}
+    {% for q in item.quotes %}
+    <blockquote>«{{ q.text }}»<cite>{% if q.author %}{{ q.author }}, {% endif %}{{ q.meta }}</cite></blockquote>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if competitor.synthesis.verdict %}
+  <div class="verdict">
+    <div class="verdict-label">Что это значит для {{ display_name }}</div>
+    {{ competitor.synthesis.verdict }}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 
 <div class="section">
   <h2 id="feed">Лента отзывов</h2>

@@ -78,6 +78,17 @@ def test_load_competitor_defaults_missing_reviews_to_empty_list(tmp_path):
     assert doc["reviews"] == []
 
 
+def test_load_competitor_defaults_missing_synthesis_to_none(tmp_path):
+    """Независимый качественный разбор (темы/цитаты) — необязательное поле,
+    не у каждого конкурента он есть с самого начала. Шаблон должен спокойно
+    скрыть секцию, если synthesis отсутствует."""
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "no_synthesis.json").write_text('{"name": "X", "reviews": []}', encoding="utf-8")
+    doc = competitors.load_competitor(tmp_path, "no_synthesis")
+    assert doc["synthesis"] is None
+
+
 def test_aggregate_tags_sums_by_sentiment():
     reviews = [
         {"tags": [{"tag": "тренеры", "s": "positive"}, {"tag": "душевые", "s": "negative"}]},

@@ -46,6 +46,7 @@ def load_competitor(client_dir: Path, competitor_slug: str) -> dict | None:
     if not isinstance(data, dict):
         return None
     data.setdefault("reviews", [])
+    data.setdefault("synthesis", None)
     return data
 
 
