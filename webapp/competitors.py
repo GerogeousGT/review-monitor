@@ -5,11 +5,18 @@
 напрямую, не main_collect.py). Не зависит от Flask — тот же принцип, что у
 charts.py/period.py: должен оставаться тестируемым из корневого venv.
 
-Формат файла:
-{"name": "Black Fit", "url": "...", "platform": "yandex_maps", "collected_at": "2026-07-27",
- "reviews": [{"author":..., "rating":..., "text":..., "date":..., "sentiment":...,
-              "tags": [{"tag":..., "s": "positive"|"neutral"|"negative"}, ...]}, ...]}
-"""
+Формат файла (v2, 2026-07-30 — один конкурент может быть собран сразу с
+нескольких площадок, отзывы сливаются в один список, каждый несёт свой platform):
+{"name": "Фитберри", "sources": [{"platform": "yandex_maps", "url": "...", "collected_at": "..."}, ...],
+ "reviews": [{"platform":..., "author":..., "rating":..., "text":..., "date":..., "sentiment":...,
+              "reply_status": "replied"|"pending", "reply_text": ...,
+              "tags": [{"tag":..., "s": "positive"|"neutral"|"negative"}, ...]}, ...],
+ "synthesis": {"praised": [...], "complaints": [...], "named_staff": [...],
+               "reputation": {"patterns": [...], "verdict": "..."}, "verdict": "..."}}
+
+Старый формат (v1, один конкурент = одна площадка, поля platform/url/collected_at
+на верхнем уровне) читается как есть — load_competitor() приводит его к sources
+на лету, чтобы не переписывать уже собранные файлы (Black Fit, Fitness Life, Profi)."""
 import json
 from pathlib import Path
 
@@ -47,6 +54,13 @@ def load_competitor(client_dir: Path, competitor_slug: str) -> dict | None:
         return None
     data.setdefault("reviews", [])
     data.setdefault("synthesis", None)
+    if "sources" not in data and data.get("platform"):
+        data["sources"] = [{
+            "platform": data.get("platform"),
+            "url": data.get("url"),
+            "collected_at": data.get("collected_at"),
+        }]
+    data.setdefault("sources", [])
     return data
 
 
@@ -73,3 +87,14 @@ def sentiment_totals(reviews: list[dict]) -> dict:
         if s in totals:
             totals[s] += 1
     return totals
+
+
+def reply_stats(reviews: list[dict]) -> dict:
+    """Частота ответов клуба на отзывы — считается кодом (не на глаз при
+    ручном разборе), чтобы % не разъезжался при добавлении новых отзывов.
+    reply_status по умолчанию "pending", если поле вообще отсутствует
+    (старые файлы, собранные до 2026-07-30, где reply_text/статус не было)."""
+    total = len(reviews)
+    replied = sum(1 for r in reviews if r.get("reply_status") == "replied")
+    pct = round(replied / total * 100) if total else 0
+    return {"total": total, "replied": replied, "pending": total - replied, "pct": pct}

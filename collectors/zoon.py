@@ -66,7 +66,14 @@ def fetch_reviews(url: str, max_clicks: int = 5) -> list[dict]:
         text_el = block.select_one('[itemprop="reviewBody"]')
         text = text_el.get_text(" ", strip=True) if text_el else ""
 
-        has_reply = block.select_one("li.comment-item") is not None
+        comment_el = block.select_one("li.comment-item")
+        reply_text = None
+        if comment_el is not None:
+            try:
+                reply_body_el = comment_el.select_one('[itemprop="reviewBody"]') or comment_el
+                reply_text = reply_body_el.get_text(" ", strip=True) or None
+            except Exception:
+                reply_text = None
 
         if not external_id:
             continue
@@ -78,7 +85,8 @@ def fetch_reviews(url: str, max_clicks: int = 5) -> list[dict]:
                 "rating": rating,
                 "text": text,
                 "date": date,
-                "reply_status": "replied" if has_reply else "pending",
+                "reply_status": "replied" if comment_el is not None else "pending",
+                "reply_text": reply_text,
             }
         )
     return results

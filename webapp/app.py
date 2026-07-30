@@ -499,11 +499,13 @@ def dashboard_competitors(slug: str):
     competitor = None
     tag_summary = []
     sentiment = {"positive": 0, "neutral": 0, "negative": 0}
+    reply_stats = {"total": 0, "replied": 0, "pending": 0, "pct": 0}
     if active_slug:
         competitor = competitors.load_competitor(client_dir, active_slug)
         if competitor:
             tag_summary = competitors.aggregate_tags(competitor["reviews"])
             sentiment = competitors.sentiment_totals(competitor["reviews"])
+            reply_stats = competitors.reply_stats(competitor["reviews"])
 
     return render_template(
         "dashboard_competitors.html",
@@ -515,6 +517,7 @@ def dashboard_competitors(slug: str):
         competitor=competitor,
         tag_summary=tag_summary,
         sentiment=sentiment,
+        reply_stats=reply_stats,
     )
 
 

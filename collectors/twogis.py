@@ -54,7 +54,15 @@ def fetch_reviews(url: str, max_reviews: int = 10, lookback_days: int = 60) -> l
         date = item.get("dateCreated")
         external_id = str(item.get("reviewId") or synthetic_id(author, date, text[:80]))
 
-        has_reply = bool(item.get("officialAnswer"))
+        official_answer = item.get("officialAnswer")
+        reply_text = None
+        # Форма officialAnswer в ответе актора не задокументирована — на практике
+        # видели то строку, то объект с текстовым полем; берём что есть, не падаем
+        # на неожиданной форме (сам факт наличия уже достаточен для reply_status).
+        if isinstance(official_answer, str):
+            reply_text = official_answer.strip() or None
+        elif isinstance(official_answer, dict):
+            reply_text = (official_answer.get("text") or official_answer.get("comment") or "").strip() or None
 
         results.append(
             {
@@ -63,7 +71,8 @@ def fetch_reviews(url: str, max_reviews: int = 10, lookback_days: int = 60) -> l
                 "rating": int(rating) if rating is not None else None,
                 "text": text,
                 "date": date,
-                "reply_status": "replied" if has_reply else "pending",
+                "reply_status": "replied" if official_answer else "pending",
+                "reply_text": reply_text,
             }
         )
     return results

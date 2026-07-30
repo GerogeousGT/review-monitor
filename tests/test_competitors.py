@@ -115,3 +115,56 @@ def test_sentiment_totals_counts_each_bucket():
 def test_sentiment_totals_ignores_unknown_values():
     reviews = [{"sentiment": "positive"}, {"sentiment": "weird"}, {}]
     assert competitors.sentiment_totals(reviews) == {"positive": 1, "neutral": 0, "negative": 0}
+
+
+def test_load_competitor_converts_v1_platform_to_sources(tmp_path):
+    """Старые файлы (Black Fit, Fitness Life, Profi — собраны до 2026-07-30)
+    хранят platform/url/collected_at на верхнем уровне, не в sources[] —
+    должны читаться как есть, без ручной миграции файлов."""
+    _write_competitor(tmp_path, "black_fit", "Black Fit", [])
+    doc = competitors.load_competitor(tmp_path, "black_fit")
+    assert doc["sources"] == [{"platform": "yandex_maps", "url": "https://example.com", "collected_at": None}]
+
+
+def test_load_competitor_v2_sources_passthrough(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    doc_in = {
+        "name": "Фитберри",
+        "sources": [
+            {"platform": "yandex_maps", "url": "https://example.com/ya", "collected_at": "2026-07-30"},
+            {"platform": "2gis", "url": "https://example.com/2gis", "collected_at": "2026-07-30"},
+        ],
+        "reviews": [],
+    }
+    (comp_dir / "fitberri.json").write_text(json.dumps(doc_in, ensure_ascii=False), encoding="utf-8")
+    doc = competitors.load_competitor(tmp_path, "fitberri")
+    assert doc["sources"] == doc_in["sources"]
+
+
+def test_load_competitor_defaults_missing_sources_to_empty_list(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "no_sources.json").write_text('{"name": "X", "reviews": []}', encoding="utf-8")
+    doc = competitors.load_competitor(tmp_path, "no_sources")
+    assert doc["sources"] == []
+
+
+def test_reply_stats_counts_replied_and_pending():
+    reviews = [
+        {"reply_status": "replied"},
+        {"reply_status": "replied"},
+        {"reply_status": "pending"},
+    ]
+    assert competitors.reply_stats(reviews) == {"total": 3, "replied": 2, "pending": 1, "pct": 67}
+
+
+def test_reply_stats_empty_reviews_is_zero():
+    assert competitors.reply_stats([]) == {"total": 0, "replied": 0, "pending": 0, "pct": 0}
+
+
+def test_reply_stats_missing_reply_status_counts_as_pending():
+    """Старые файлы, собранные до 2026-07-30, вообще не имеют reply_status —
+    не должны считаться "отвеченными" по умолчанию."""
+    reviews = [{"author": "А"}, {"reply_status": "replied"}]
+    assert competitors.reply_stats(reviews) == {"total": 2, "replied": 1, "pending": 1, "pct": 50}

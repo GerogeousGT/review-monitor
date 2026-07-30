@@ -20,8 +20,74 @@ def _reviews_url(url: str) -> str:
     return url if url.endswith("/reviews") else url + "/reviews/"
 
 
+def _parse_block(block) -> dict | None:
+    name_el = block.select_one('[itemprop="author"] [itemprop="name"]')
+    author = name_el.get_text(strip=True) if name_el else None
+
+    rating_el = block.select_one(".business-rating-badge-view__stars")
+    rating = None
+    if rating_el and rating_el.get("aria-label"):
+        m = re.search(r"Rating (\d+)", rating_el["aria-label"])
+        if m:
+            rating = int(m.group(1))
+
+    date_el = block.select_one('meta[itemprop="datePublished"]')
+    date = date_el["content"] if date_el else None
+
+    text_el = block.select_one('[itemprop="reviewBody"]')
+    text = ""
+    if text_el:
+        # На случай, если тумблер "ещё/свернуть" не исчез из DOM после клика —
+        # вырезаем его, чтобы его подпись не попала в текст отзыва.
+        for toggle in text_el.select(".business-review-view__expand, .spoiler-view__button"):
+            toggle.decompose()
+        text = text_el.get_text(" ", strip=True).rstrip("… ").strip()
+
+    if not text and rating is None:
+        return None
+
+    comment_el = block.select_one(".business-review-comment")
+    reply_text = None
+    if comment_el is not None:
+        # Не всегда есть выделенный текстовый блок ответа — если верстка
+        # отличается, оставляем reply_text пустым, но reply_status всё равно
+        # "replied" (сам факт наличия блока комментария уже об этом говорит).
+        try:
+            reply_text_el = comment_el.select_one('[itemprop="reviewBody"]') or comment_el
+            reply_text = reply_text_el.get_text(" ", strip=True) or None
+        except Exception:
+            reply_text = None
+
+    return {
+        "external_id": synthetic_id(author, date, text[:80]),
+        "author": author,
+        "rating": rating,
+        "text": text,
+        "date": date,
+        "reply_status": "replied" if comment_el is not None else "pending",
+        "reply_text": reply_text,
+    }
+
+
 def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
     reviews_url = _reviews_url(url)
+    collected: dict[str, dict] = {}
+
+    def _harvest_visible(page) -> None:
+        # Раскрыть обрезанный текст ПЕРЕД разбором этого раунда — длинные отзывы
+        # догружаются по клику (реальный AJAX-подгруз остатка, не просто CSS
+        # line-clamp), без этого текст обрывается на полуслове с многоточием.
+        try:
+            page.eval_on_selector_all(EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
+            page.wait_for_timeout(500)
+        except Exception:
+            pass
+        soup = BeautifulSoup(page.content(), "html.parser")
+        for block in soup.select(REVIEW_SELECTOR):
+            parsed = _parse_block(block)
+            if parsed:
+                collected[parsed["external_id"]] = parsed
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(user_agent=USER_AGENT)
@@ -32,69 +98,30 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
             browser.close()
             return []
 
-        prev_count = 0
+        # Подгрузка идёт ПАЧКАМИ, не по одному отзыву на скролл — на реальном
+        # клубе с 300+ отзывами счётчик стоял на месте ~6 скроллов подряд, потом
+        # разом прыгал на 50 (найдено 2026-07-30). Порог "остановиться после 2
+        # пустых скроллов" обрывал сбор прямо посреди такой паузы. Терпим 10
+        # подряд пустых скроллов, прежде чем считать, что подгружать нечего.
+        _harvest_visible(page)
+        prev_total = len(collected)
+        stale_streak = 0
         for _ in range(max_scrolls):
-            count = page.locator(REVIEW_SELECTOR).count()
-            if count == prev_count:
-                break
-            prev_count = count
             try:
                 page.locator(REVIEWS_CONTAINER_SELECTOR).hover()
             except Exception:
                 pass
             page.mouse.wheel(0, 2000)
             page.wait_for_timeout(1200)
+            _harvest_visible(page)
+            if len(collected) == prev_total:
+                stale_streak += 1
+                if stale_streak >= 10:
+                    break
+            else:
+                stale_streak = 0
+            prev_total = len(collected)
 
-        # Длинные отзывы визуально обрезаны (CSS line-clamp) и ДОГРУЖАЮТСЯ по клику —
-        # это не просто "показать скрытое", а реальный AJAX-подгруз остатка текста.
-        # Без этого шага текст обрывается на полуслове с многоточием.
-        try:
-            page.eval_on_selector_all(EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
-            page.wait_for_timeout(1500)
-        except Exception:
-            pass
-
-        html = page.content()
         browser.close()
 
-    soup = BeautifulSoup(html, "html.parser")
-    results = []
-    for block in soup.select(REVIEW_SELECTOR):
-        name_el = block.select_one('[itemprop="author"] [itemprop="name"]')
-        author = name_el.get_text(strip=True) if name_el else None
-
-        rating_el = block.select_one(".business-rating-badge-view__stars")
-        rating = None
-        if rating_el and rating_el.get("aria-label"):
-            m = re.search(r"Rating (\d+)", rating_el["aria-label"])
-            if m:
-                rating = int(m.group(1))
-
-        date_el = block.select_one('meta[itemprop="datePublished"]')
-        date = date_el["content"] if date_el else None
-
-        text_el = block.select_one('[itemprop="reviewBody"]')
-        text = ""
-        if text_el:
-            # На случай, если тумблер "ещё/свернуть" не исчез из DOM после клика —
-            # вырезаем его, чтобы его подпись не попала в текст отзыва.
-            for toggle in text_el.select(".business-review-view__expand, .spoiler-view__button"):
-                toggle.decompose()
-            text = text_el.get_text(" ", strip=True).rstrip("… ").strip()
-
-        if not text and rating is None:
-            continue
-
-        has_reply = block.select_one(".business-review-comment") is not None
-
-        results.append(
-            {
-                "external_id": synthetic_id(author, date, text[:80]),
-                "author": author,
-                "rating": rating,
-                "text": text,
-                "date": date,
-                "reply_status": "replied" if has_reply else "pending",
-            }
-        )
-    return results
+    return list(collected.values())

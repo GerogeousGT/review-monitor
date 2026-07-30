@@ -74,6 +74,12 @@
   .review-tag.positive { color: var(--accent); border-color: rgba(94,234,168,0.3); }
   .review-tag.negative { color: var(--danger); border-color: rgba(234,94,110,0.3); }
   .review-tag.neutral { color: #e0b84c; border-color: rgba(224,184,76,0.3); }
+  .platform-badge { background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .reply-badge { font-size: 0.75rem; }
+  .reply-badge.replied { color: var(--accent); }
+  .reply-badge.pending { color: var(--danger); }
+  .reply-block { margin-top: 10px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-left: 2px solid var(--accent-2); border-radius: 0 8px 8px 0; font-size: 0.8125rem; color: var(--text-dim); }
+  .reply-block b { color: var(--text); }
 
   .empty-note { color: var(--text-dim); font-size: 0.875rem; padding: 20px 0; }
 
@@ -117,9 +123,10 @@
 
 {% if competitor %}
 <div class="comp-meta">
-  Источник: {{ platform_labels.get(competitor.platform, competitor.platform) if platform_labels else competitor.platform }}
-  {% if competitor.url %}· <a href="{{ competitor.url }}" target="_blank" rel="noopener">открыть площадку</a>{% endif %}
-  {% if competitor.collected_at %}· собрано {{ competitor.collected_at }}{% endif %}
+  Источники:
+  {% for src in competitor.sources %}
+  {{ platform_labels.get(src.platform, src.platform) if platform_labels else src.platform }}{% if src.url %} (<a href="{{ src.url }}" target="_blank" rel="noopener">открыть</a>){% endif %}{% if src.collected_at %}, собрано {{ src.collected_at }}{% endif %}{% if not loop.last %} · {% endif %}
+  {% endfor %}
   · {{ competitor.reviews|length }} отзывов
 </div>
 
@@ -127,6 +134,7 @@
   <div class="summary-card pos"><div class="num">{{ sentiment.positive }}</div><div class="label">🟢 позитив</div></div>
   <div class="summary-card neg"><div class="num">{{ sentiment.negative }}</div><div class="label">🔴 негатив</div></div>
   <div class="summary-card neu"><div class="num">{{ sentiment.neutral }}</div><div class="label">🟡 нейтральные</div></div>
+  <div class="summary-card"><div class="num">{{ reply_stats.pct }}%</div><div class="label">💬 отвечают на отзывы ({{ reply_stats.replied }}/{{ reply_stats.total }})</div></div>
 </div>
 
 <div class="section">
@@ -196,6 +204,29 @@
   {% endfor %}
   {% endif %}
 
+  {% if competitor.synthesis.reputation %}
+  <h3 style="font-size: 0.9375rem; margin: 24px 0 10px;">Работа с репутацией</h3>
+  {% for item in competitor.synthesis.reputation.patterns %}
+  <div class="theme-block">
+    <h4><span class="dot {{ 'pos' if item.tone == 'positive' else 'neg' }}"></span>{{ item.title }}{% if item.freq %}<span class="freq">— {{ item.freq }}</span>{% endif %}</h4>
+    {% if item.note %}<div class="note">{{ item.note }}</div>{% endif %}
+    {% for q in item.quotes %}
+    <blockquote>
+      «{{ q.review_text }}»<cite>{% if q.author %}{{ q.author }}, {% endif %}{{ q.meta }}</cite>
+      {% if q.reply_text %}<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); color: var(--text-dim);">Ответ клуба: «{{ q.reply_text }}»</div>
+      {% else %}<div style="margin-top:8px; padding-top:8px; border-top:1px dashed var(--border); color: var(--danger); font-size: 0.8125rem;">Без ответа</div>{% endif %}
+    </blockquote>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if competitor.synthesis.reputation.verdict %}
+  <div class="verdict">
+    <div class="verdict-label">Работа с репутацией — вывод</div>
+    {{ competitor.synthesis.reputation.verdict }}
+  </div>
+  {% endif %}
+  {% endif %}
+
   {% if competitor.synthesis.verdict %}
   <div class="verdict">
     <div class="verdict-label">Что это значит для {{ display_name }}</div>
@@ -224,6 +255,7 @@
 <script>
 (function () {
   var REVIEWS = {{ competitor.reviews | tojson }};
+  var PLATFORM_LABELS = {{ platform_labels | tojson }};
   var state = { sentiment: 'all', tag: null };
 
   function starStr(n) {
@@ -252,14 +284,25 @@
       }).join('');
       var author = document.createElement('div'); author.textContent = r.author || 'без имени';
       var text = document.createElement('div'); text.textContent = r.text || '(без текста)';
+      var replied = r.reply_status === 'replied';
+      var replyBadge = '<span class="reply-badge ' + (replied ? 'replied' : 'pending') + '">' + (replied ? '💬 ответили' : '· без ответа') + '</span>';
+      var replyBlock = '';
+      if (r.reply_text) {
+        var replyText = document.createElement('div'); replyText.textContent = r.reply_text;
+        replyBlock = '<div class="reply-block"><b>Ответ клуба:</b> ' + replyText.innerHTML + '</div>';
+      }
+      var platformBadge = r.platform ? '<span class="platform-badge">' + (PLATFORM_LABELS[r.platform] || r.platform) + '</span>' : '';
       return '<div class="review-card">' +
         '<div class="review-head">' +
+          platformBadge +
           '<span class="stars">' + starStr(r.rating) + '</span>' +
           '<span class="author">' + author.innerHTML + '</span>' +
           '<span>&middot;</span><span>' + (r.date || '') + '</span>' +
+          replyBadge +
           '<span class="rsent ' + r.sentiment + '" title="' + r.sentiment + '"></span>' +
         '</div>' +
         '<div class="review-text">' + text.innerHTML + '</div>' +
+        replyBlock +
         (tags ? '<div class="review-tags">' + tags + '</div>' : '') +
       '</div>';
     }).join('');
