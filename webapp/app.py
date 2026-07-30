@@ -4,7 +4,8 @@
 позже сюда же добавится webhook для Telegram inline-кнопок (CHANGELOG 2026-07-14).
 
 Пользователи (auth_db.py, отдельная users.db) — роль admin видит всех clients/*,
-роль client привязана к одному client_slug и видит только его.
+роль client привязана к client_slug (один или несколько через запятую) и видит
+только перечисленных.
 
 Важно: webapp обслуживает НЕСКОЛЬКО клиентов в одном процессе одновременно — в отличие
 от main_*.py батч-скриптов (там CLIENT_SLUG задаётся один раз через env на весь запуск),
@@ -93,12 +94,15 @@ def load_user(user_id: str):
 
 
 def _visible_clients(user: User) -> list[str]:
-    """admin видит все clients/<slug>/ на диске, client — только свой."""
+    """admin видит все clients/<slug>/ на диске, client — свой список (client_slug
+    хранит один или несколько slug через запятую, см. CHANGELOG 2026-07-30)."""
     if user.role == "admin":
         if not CLIENTS_DIR.is_dir():
             return []
         return sorted(p.name for p in CLIENTS_DIR.iterdir() if p.is_dir())
-    return [user.client_slug] if user.client_slug else []
+    if not user.client_slug:
+        return []
+    return [s.strip() for s in user.client_slug.split(",") if s.strip()]
 
 
 def _client_db_path(slug: str) -> Path:
