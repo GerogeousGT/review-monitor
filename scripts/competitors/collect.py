@@ -8,11 +8,12 @@ clients/<slug>/competitors/<comp>.json — отдельный ручной ша�
 Полный (не инкрементный, как в проде) сбор — большие лимиты по умолчанию, их
 можно переопределить флагами:
   python scripts/competitors/collect.py --platform yandex_maps --url "https://yandex.ru/maps/org/.../reviews/" --out /tmp/fitberri_yandex.json
-  python scripts/competitors/collect.py --platform 2gis --url "https://2gis.ru/..." --out /tmp/fitberri_2gis.json  # нужен CLIENT_SLUG в env — 2ГИС тянет APIFY_API_TOKEN клиента
+  python scripts/competitors/collect.py --platform 2gis --url "https://2gis.ru/..." --out /tmp/fitberri_2gis.json  # использует COMPETITORS_APIFY_API_TOKEN (см. .env), не APIFY_API_TOKEN клиента
   python scripts/competitors/collect.py --platform zoon --url "https://zoon.ru/..." --out /tmp/fitberri_zoon.json
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -23,7 +24,10 @@ from collectors import twogis, yandex_maps, zoon  # noqa: E402
 
 FETCHERS = {
     "yandex_maps": lambda url, o: yandex_maps.fetch_reviews(url, max_scrolls=o.max_scrolls),
-    "2gis": lambda url, o: twogis.fetch_reviews(url, max_reviews=o.max_reviews, lookback_days=o.lookback_days),
+    "2gis": lambda url, o: twogis.fetch_reviews(
+        url, max_reviews=o.max_reviews, lookback_days=o.lookback_days,
+        token=os.environ.get("COMPETITORS_APIFY_API_TOKEN"),
+    ),
     "zoon": lambda url, o: zoon.fetch_reviews(url, max_clicks=o.max_clicks),
 }
 
@@ -34,9 +38,11 @@ def main():
     parser.add_argument("--url", required=True)
     parser.add_argument("--out", required=True)
     # Полный разовый сбор, не инкремент — лимиты заметно выше, чем в client_config.yaml продукта.
+    # 2ГИС: 0 = "без ограничений" для актора (см. collectors/twogis.py) — реальный потолок
+    # задаёт тариф Apify-аккаунта, не этот параметр.
     parser.add_argument("--max-scrolls", type=int, default=30)
     parser.add_argument("--max-clicks", type=int, default=15)
-    parser.add_argument("--max-reviews", type=int, default=200)
+    parser.add_argument("--max-reviews", type=int, default=0)
     parser.add_argument("--lookback-days", type=int, default=3650)
     args = parser.parse_args()
 
