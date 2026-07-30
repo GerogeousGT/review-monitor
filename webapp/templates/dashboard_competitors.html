@@ -119,9 +119,42 @@
   <a class="comp-tab {% if c.slug == active_slug %}active{% endif %}"
      href="{{ url_for('dashboard_competitors', slug=slug) }}?competitor={{ c.slug }}">{{ c.name }}</a>
   {% endfor %}
+  <a class="comp-tab {% if active_slug == summary_slug %}active{% endif %}"
+     href="{{ url_for('dashboard_competitors', slug=slug) }}?competitor={{ summary_slug }}">Итоги</a>
 </div>
 
-{% if competitor %}
+{% if active_slug == summary_slug %}
+<div class="section">
+  <h2>Сравнение с {{ display_name }}</h2>
+  <p class="empty-note" style="padding: 0 0 18px;">Собственные цифры {{ display_name }} — за всё время, из основной БД. Единственное место на этой странице, которое читает данные клиента, а не только конкурентов.</p>
+
+  <div class="table-scroll">
+  <table class="tagtable">
+    <tr><th>Клуб</th><th>🟢 Позитив</th><th>🔴 Негатив</th><th>🟡 Нейтр.</th><th>💬 Отвечают</th><th>Топ-темы</th></tr>
+    <tr style="background: var(--surface-2);">
+      <td class="tag">{{ summary.own.name }} (вы)</td>
+      <td>{{ summary.own.sentiment.positive }}</td>
+      <td>{{ summary.own.sentiment.negative }}</td>
+      <td>{{ summary.own.sentiment.neutral }}</td>
+      <td>{{ summary.own.reply_stats.pct }}% ({{ summary.own.reply_stats.replied }}/{{ summary.own.reply_stats.total }})</td>
+      <td>{{ summary.own.top_tags[:5] | map(attribute='tag') | join(', ') }}</td>
+    </tr>
+    {% for comp in summary.competitors %}
+    <tr>
+      <td class="tag">{{ comp.name }}</td>
+      <td>{{ comp.sentiment.positive }}</td>
+      <td>{{ comp.sentiment.negative }}</td>
+      <td>{{ comp.sentiment.neutral }}</td>
+      <td>{{ comp.reply_stats.pct }}% ({{ comp.reply_stats.replied }}/{{ comp.reply_stats.total }})</td>
+      <td>{{ comp.top_tags[:5] | map(attribute='tag') | join(', ') }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="empty-note" style="padding: 14px 0 0;">"Отвечают" — доля отзывов с ответом клуба на площадке, где отзыв был оставлен (не через саму систему review-monitor). Считается по всем собранным площадкам конкурента вместе.</p>
+</div>
+
+{% elif competitor %}
 <div class="comp-meta">
   Источники:
   {% for src in competitor.sources %}

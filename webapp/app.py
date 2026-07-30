@@ -478,13 +478,66 @@ def dashboard_tags(slug: str):
     )
 
 
+COMPETITORS_SUMMARY_SLUG = "__summary__"
+
+
+def _build_competitors_summary(slug: str, client_dir: Path, competitors_list: list[dict]) -> dict:
+    """Единственное место вкладки 'Конкуренты', которое читает reviews.db клиента —
+    сравниваем клиента с самим собой (не тянем чужие данные), поэтому не нарушает
+    изоляцию конкурентной разведки (см. PLAN.md). reply_status в reviews.db
+    отражает факт ответа клуба НА ПЛОЩАДКЕ на момент сбора (то же поле, что у
+    коллекторов конкурентов) — не отдельный SLA-статус review-monitor, поэтому
+    сравнимо один в один с competitors.reply_stats()."""
+    own = {
+        "name": _client_display_name(slug),
+        "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
+        "reply_stats": {"total": 0, "replied": 0, "pending": 0, "pct": 0},
+        "top_tags": [],
+    }
+    db_path = _client_db_path(slug)
+    if db_path.exists():
+        conn = core_db.get_connection(db_path=db_path)
+        core_db.init_db(conn)
+        location_id = _primary_location_id(conn)
+        if location_id:
+            since_all = "2000-01-01T00:00:00+00:00"
+            until_now = datetime.now(timezone.utc).isoformat()
+            raw_counts = core_db.get_review_sentiment_counts_since(conn, location_id, since_all)
+            own["sentiment"] = {k: raw_counts.get(k, 0) for k in ("positive", "neutral", "negative")}
+            reply_rows = [
+                dict(r) for r in conn.execute(
+                    "SELECT reply_status FROM reviews WHERE location_id=?", (location_id,)
+                ).fetchall()
+            ]
+            own["reply_stats"] = competitors.reply_stats(reply_rows)
+            category_tree = core_db.get_tag_counts_by_category_since(conn, location_id, since_all, until_now)
+            flat_tags = [t for cat in category_tree for t in cat["tags"]]
+            own["top_tags"] = sorted(flat_tags, key=lambda t: -t["total"])[:8]
+        conn.close()
+
+    rows = []
+    for c in competitors_list:
+        comp = competitors.load_competitor(client_dir, c["slug"])
+        if not comp:
+            continue
+        rows.append({
+            "name": comp["name"],
+            "sentiment": competitors.sentiment_totals(comp["reviews"]),
+            "reply_stats": competitors.reply_stats(comp["reviews"]),
+            "top_tags": competitors.aggregate_tags(comp["reviews"])[:8],
+        })
+
+    return {"own": own, "competitors": rows}
+
+
 @app.route("/dashboard/<slug>/competitors")
 @login_required
 def dashboard_competitors(slug: str):
     """Конкурентная разведка (2026-07-27) — данные вне основной БД, см.
     webapp/competitors.py и PLAN.md. Не использует _require_client_access
     (та требует существования reviews.db — конкуренты от неё не зависят),
-    только проверка видимости клиента."""
+    только проверка видимости клиента. Исключение — вкладка "Итоги"
+    (COMPETITORS_SUMMARY_SLUG), см. _build_competitors_summary()."""
     if slug not in _visible_clients(current_user):
         return "Доступ запрещён", 403
 
@@ -492,7 +545,10 @@ def dashboard_competitors(slug: str):
     competitors_list = competitors.list_competitors(client_dir)
 
     requested = request.args.get("competitor", "")
-    active_slug = requested if any(c["slug"] == requested for c in competitors_list) else (
+    valid_slugs = {c["slug"] for c in competitors_list}
+    if competitors_list:
+        valid_slugs.add(COMPETITORS_SUMMARY_SLUG)
+    active_slug = requested if requested in valid_slugs else (
         competitors_list[0]["slug"] if competitors_list else None
     )
 
@@ -500,7 +556,11 @@ def dashboard_competitors(slug: str):
     tag_summary = []
     sentiment = {"positive": 0, "neutral": 0, "negative": 0}
     reply_stats = {"total": 0, "replied": 0, "pending": 0, "pct": 0}
-    if active_slug:
+    summary = None
+
+    if active_slug == COMPETITORS_SUMMARY_SLUG:
+        summary = _build_competitors_summary(slug, client_dir, competitors_list)
+    elif active_slug:
         competitor = competitors.load_competitor(client_dir, active_slug)
         if competitor:
             tag_summary = competitors.aggregate_tags(competitor["reviews"])
@@ -513,11 +573,13 @@ def dashboard_competitors(slug: str):
         display_name=_client_display_name(slug),
         no_data=False,
         competitors_list=competitors_list,
+        summary_slug=COMPETITORS_SUMMARY_SLUG,
         active_slug=active_slug,
         competitor=competitor,
         tag_summary=tag_summary,
         sentiment=sentiment,
         reply_stats=reply_stats,
+        summary=summary,
     )
 
 
