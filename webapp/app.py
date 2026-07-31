@@ -527,7 +527,7 @@ def _build_competitors_summary(slug: str, client_dir: Path, competitors_list: li
             "top_tags": competitors.aggregate_tags(comp["reviews"])[:8],
         })
 
-    return {"own": own, "competitors": rows}
+    return {"own": own, "competitors": rows, "market": competitors.load_market_synthesis(client_dir)}
 
 
 @app.route("/dashboard/<slug>/competitors")

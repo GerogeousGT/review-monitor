@@ -154,6 +154,27 @@
   <p class="empty-note" style="padding: 14px 0 0;">"Отвечают" — доля отзывов с ответом клуба на площадке, где отзыв был оставлен (не через саму систему review-monitor). Считается по всем собранным площадкам конкурента вместе.</p>
 </div>
 
+{% if summary.market %}
+<div class="section">
+  <h2>Что взять для позиционирования и офферов <span style="color:var(--text-dim); font-weight:400; font-size:0.8125rem;">— повторяется у нескольких конкурентов сразу, не у одного</span></h2>
+  {% for item in summary.market.opportunities %}
+  <div class="theme-block">
+    <h4><span class="dot neg"></span>{{ item.title }}</h4>
+    {% if item.note %}<div class="note">{{ item.note }}</div>{% endif %}
+    {% for q in item.evidence %}
+    <blockquote>«{{ q.quote }}»<cite>{{ q.competitor }}{% if q.meta %}, {{ q.meta }}{% endif %}</cite></blockquote>
+    {% endfor %}
+  </div>
+  {% endfor %}
+  {% if summary.market.verdict %}
+  <div class="verdict">
+    <div class="verdict-label">Главный вывод по рынку</div>
+    {{ summary.market.verdict }}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% elif competitor %}
 <div class="comp-meta">
   Источники:

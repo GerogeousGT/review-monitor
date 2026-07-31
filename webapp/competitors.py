@@ -24,12 +24,16 @@ from pathlib import Path
 def list_competitors(client_dir: Path) -> list[dict]:
     """[{"slug": "black_fit", "name": "Black Fit"}, ...] — сканирует competitors/*.json,
     ничего не нужно регистрировать в client_config.yaml. Битые/нечитаемые файлы
-    тихо пропускаются, не роняют страницу."""
+    тихо пропускаются, не роняют страницу. Файлы с "_" в начале имени (например
+    _market_synthesis.json) — служебные, не отдельные конкуренты, пропускаются
+    (см. load_market_synthesis())."""
     comp_dir = client_dir / "competitors"
     if not comp_dir.is_dir():
         return []
     result = []
     for path in sorted(comp_dir.glob("*.json")):
+        if path.stem.startswith("_"):
+            continue
         try:
             with path.open(encoding="utf-8") as f:
                 data = json.load(f)
@@ -61,6 +65,30 @@ def load_competitor(client_dir: Path, competitor_slug: str) -> dict | None:
             "collected_at": data.get("collected_at"),
         }]
     data.setdefault("sources", [])
+    return data
+
+
+def load_market_synthesis(client_dir: Path) -> dict | None:
+    """clients/<slug>/competitors/_market_synthesis.json — необязательный,
+    собирается вручную (не автогенерируется) по итогам чтения synthesis всех
+    собранных конкурентов клиента разом. Отличие от synthesis отдельного
+    конкурента: здесь ищутся ПАТТЕРНЫ, повторяющиеся у НЕСКОЛЬКИХ конкурентов
+    сразу (см. PLAN.md "Находка, которую не увидели бы на одном конкуренте") —
+    такие находки весомее случайной претензии на одном месте. Формат:
+    {"opportunities": [{"title","note","evidence":[{"competitor","quote","meta"}]}],
+     "verdict": "..."}"""
+    path = client_dir / "competitors" / "_market_synthesis.json"
+    if not path.is_file():
+        return None
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    data.setdefault("opportunities", [])
+    data.setdefault("verdict", None)
     return data
 
 

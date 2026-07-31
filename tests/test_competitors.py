@@ -52,6 +52,36 @@ def test_list_competitors_skips_valid_json_wrong_shape(tmp_path):
     assert [c["slug"] for c in result] == ["good"]
 
 
+def test_list_competitors_skips_underscore_prefixed_files(tmp_path):
+    """_market_synthesis.json — служебный файл, не отдельный конкурент."""
+    _write_competitor(tmp_path, "good", "Good Gym", [])
+    comp_dir = tmp_path / "competitors"
+    (comp_dir / "_market_synthesis.json").write_text('{"opportunities": []}', encoding="utf-8")
+    result = competitors.list_competitors(tmp_path)
+    assert [c["slug"] for c in result] == ["good"]
+
+
+def test_load_market_synthesis_returns_none_when_missing(tmp_path):
+    assert competitors.load_market_synthesis(tmp_path) is None
+
+
+def test_load_market_synthesis_returns_document(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    doc = {"opportunities": [{"title": "X", "note": "Y", "evidence": []}], "verdict": "Z"}
+    (comp_dir / "_market_synthesis.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    result = competitors.load_market_synthesis(tmp_path)
+    assert result["opportunities"][0]["title"] == "X"
+    assert result["verdict"] == "Z"
+
+
+def test_load_market_synthesis_returns_none_for_wrong_shape(tmp_path):
+    comp_dir = tmp_path / "competitors"
+    comp_dir.mkdir()
+    (comp_dir / "_market_synthesis.json").write_text("[1, 2, 3]", encoding="utf-8")
+    assert competitors.load_market_synthesis(tmp_path) is None
+
+
 def test_load_competitor_returns_none_when_missing(tmp_path):
     assert competitors.load_competitor(tmp_path, "nope") is None
 
