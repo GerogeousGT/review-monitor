@@ -79,31 +79,23 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
     reviews_url = _reviews_url(url)
     collected: dict[str, dict] = {}
 
-    def _expand_comments(page) -> None:
-        # JS-клик через eval_on_selector_all не триггерит обработчик Яндекса на
-        # этой кнопке (найдено 2026-07-31: 0 успешных раскрытий из 50 реальных
-        # ответов) — нужен настоящий Playwright-клик (реальные mouse-события),
-        # в отличие от EXPAND_SELECTOR (текст отзыва), где JS-клик работает.
-        # Кнопка не пропадает из DOM после клика (текст меняется на "Hide..."),
-        # поэтому пропускаем уже раскрытые — иначе на каждом цикле переключали
-        # бы обратно в свёрнутое состояние.
-        try:
-            buttons = page.locator(COMMENT_EXPAND_SELECTOR)
-            count = buttons.count()
-        except Exception:
-            return
-        for i in range(count):
-            btn = buttons.nth(i)
-            try:
-                text = btn.inner_text(timeout=1000)
-            except Exception:
-                continue
-            if "hide" in text.lower() or "скрыть" in text.lower():
-                continue
-            try:
-                btn.click(timeout=2000)
-            except Exception:
-                continue
+    # Обычный JS .click() через eval_on_selector_all не триггерит обработчик
+    # Яндекса на этой кнопке (0 успешных раскрытий из 50 реальных ответов), а
+    # настоящий Playwright-клик (buttons.nth(i).click()) двигает страницу
+    # (scrollIntoViewIfNeeded) и сбивает виртуализированный скролл — счётчик
+    # переставал расти после первой же пачки кликов (найдено 2026-07-31).
+    # Полная последовательность synthetic pointer/mouse-событий через
+    # dispatchEvent — без реального движения мыши/скролла страницы — сработала
+    # (49 из 49 раскрылись). Пропускаем уже раскрытые ("Hide...") — кнопка не
+    # пропадает из DOM после раскрытия, иначе переключали бы туда-обратно.
+    COMMENT_EXPAND_JS = """
+    els => els.forEach(e => {
+      if (e.textContent.toLowerCase().includes('hide') || e.textContent.toLowerCase().includes('скрыть')) return;
+      ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(type => {
+        e.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, view: window}));
+      });
+    });
+    """
 
     def _harvest_visible(page) -> None:
         # Раскрыть обрезанный текст ПЕРЕД разбором этого раунда — длинные отзывы
@@ -111,9 +103,9 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
         # line-clamp), без этого текст обрывается на полуслове с многоточием.
         try:
             page.eval_on_selector_all(EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
+            page.eval_on_selector_all(COMMENT_EXPAND_SELECTOR, COMMENT_EXPAND_JS)
         except Exception:
             pass
-        _expand_comments(page)
         page.wait_for_timeout(500)
         soup = BeautifulSoup(page.content(), "html.parser")
         for block in soup.select(REVIEW_SELECTOR):
@@ -134,8 +126,9 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
         # Подгрузка идёт ПАЧКАМИ, не по одному отзыву на скролл — на реальном
         # клубе с 300+ отзывами счётчик стоял на месте ~6 скроллов подряд, потом
         # разом прыгал на 50 (найдено 2026-07-30). Порог "остановиться после 2
-        # пустых скроллов" обрывал сбор прямо посреди такой паузы. Терпим 10
-        # подряд пустых скроллов, прежде чем считать, что подгружать нечего.
+        # пустых скроллов" обрывал сбор прямо посреди такой паузы. С реальными
+        # кликами по кнопке ответа (2026-07-31) цикл стал заметно тяжелее — порог
+        # 10 тоже начал обрываться слишком рано, подняли до 25.
         _harvest_visible(page)
         prev_total = len(collected)
         stale_streak = 0
@@ -149,7 +142,7 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
             _harvest_visible(page)
             if len(collected) == prev_total:
                 stale_streak += 1
-                if stale_streak >= 10:
+                if stale_streak >= 25:
                     break
             else:
                 stale_streak = 0
