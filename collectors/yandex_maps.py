@@ -13,6 +13,12 @@ from .base import USER_AGENT, synthetic_id
 REVIEWS_CONTAINER_SELECTOR = ".business-reviews-card-view__reviews-container"
 REVIEW_SELECTOR = ".business-review-view"
 EXPAND_SELECTOR = ".business-review-view__expand"
+# Ответ организации ЛЕНИВО рендерится по клику — не просто CSS-скрыт, элемента
+# нет в DOM вообще, пока не нажать (найдено 2026-07-31: реальный клуб с 49
+# видимыми кнопками "показать ответ" на первых скроллах отдавал 0 обнаруженных
+# ответов, потому что .business-review-comment — несуществующий класс, реальный
+# контейнер business-review-comment__comment появляется только после клика).
+COMMENT_EXPAND_SELECTOR = ".business-review-view__comment-expand"
 
 
 def _reviews_url(url: str) -> str:
@@ -46,14 +52,14 @@ def _parse_block(block) -> dict | None:
     if not text and rating is None:
         return None
 
-    comment_el = block.select_one(".business-review-comment")
+    comment_el = block.select_one(".business-review-comment__comment")
     reply_text = None
     if comment_el is not None:
-        # Не всегда есть выделенный текстовый блок ответа — если верстка
-        # отличается, оставляем reply_text пустым, но reply_status всё равно
-        # "replied" (сам факт наличия блока комментария уже об этом говорит).
+        # Внутри контейнера есть заголовок "Official response <дата>" отдельным
+        # блоком — берём именно __bubble (чистый текст ответа), не весь
+        # контейнер, иначе заголовок попадёт в reply_text.
         try:
-            reply_text_el = comment_el.select_one('[itemprop="reviewBody"]') or comment_el
+            reply_text_el = comment_el.select_one(".business-review-comment-content__bubble") or comment_el
             reply_text = reply_text_el.get_text(" ", strip=True) or None
         except Exception:
             reply_text = None
@@ -79,6 +85,7 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
         # line-clamp), без этого текст обрывается на полуслове с многоточием.
         try:
             page.eval_on_selector_all(EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
+            page.eval_on_selector_all(COMMENT_EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
             page.wait_for_timeout(500)
         except Exception:
             pass
