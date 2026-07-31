@@ -79,16 +79,42 @@ def fetch_reviews(url: str, max_scrolls: int = 8) -> list[dict]:
     reviews_url = _reviews_url(url)
     collected: dict[str, dict] = {}
 
+    def _expand_comments(page) -> None:
+        # JS-клик через eval_on_selector_all не триггерит обработчик Яндекса на
+        # этой кнопке (найдено 2026-07-31: 0 успешных раскрытий из 50 реальных
+        # ответов) — нужен настоящий Playwright-клик (реальные mouse-события),
+        # в отличие от EXPAND_SELECTOR (текст отзыва), где JS-клик работает.
+        # Кнопка не пропадает из DOM после клика (текст меняется на "Hide..."),
+        # поэтому пропускаем уже раскрытые — иначе на каждом цикле переключали
+        # бы обратно в свёрнутое состояние.
+        try:
+            buttons = page.locator(COMMENT_EXPAND_SELECTOR)
+            count = buttons.count()
+        except Exception:
+            return
+        for i in range(count):
+            btn = buttons.nth(i)
+            try:
+                text = btn.inner_text(timeout=1000)
+            except Exception:
+                continue
+            if "hide" in text.lower() or "скрыть" in text.lower():
+                continue
+            try:
+                btn.click(timeout=2000)
+            except Exception:
+                continue
+
     def _harvest_visible(page) -> None:
         # Раскрыть обрезанный текст ПЕРЕД разбором этого раунда — длинные отзывы
         # догружаются по клику (реальный AJAX-подгруз остатка, не просто CSS
         # line-clamp), без этого текст обрывается на полуслове с многоточием.
         try:
             page.eval_on_selector_all(EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
-            page.eval_on_selector_all(COMMENT_EXPAND_SELECTOR, "els => els.forEach(e => e.click())")
-            page.wait_for_timeout(500)
         except Exception:
             pass
+        _expand_comments(page)
+        page.wait_for_timeout(500)
         soup = BeautifulSoup(page.content(), "html.parser")
         for block in soup.select(REVIEW_SELECTOR):
             parsed = _parse_block(block)
