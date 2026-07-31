@@ -35,6 +35,40 @@ POLL_INTERVAL_SECONDS = 5
 MAX_WAIT_SECONDS = 540  # с запасом больше уже виденных на практике ~215с на полный сбор
 
 
+def _parse_item(item: dict) -> dict | None:
+    text = item.get("text") or ""
+    author = item.get("authorName")
+    rating = item.get("rating")
+    date = item.get("dateCreated")
+
+    # Пустая запись без текста и рейтинга — не отзыв (видели такое на проблемных
+    # прогонах актора, 2026-07-30), тот же фильтр, что в collectors/yandex_maps.py.
+    if not text and rating is None:
+        return None
+
+    external_id = str(item.get("reviewId") or synthetic_id(author, date, text[:80]))
+
+    official_answer = item.get("officialAnswer")
+    reply_text = None
+    # Форма officialAnswer в ответе актора не задокументирована — на практике
+    # видели то строку, то объект с текстовым полем; берём что есть, не падаем
+    # на неожиданной форме (сам факт наличия уже достаточен для reply_status).
+    if isinstance(official_answer, str):
+        reply_text = official_answer.strip() or None
+    elif isinstance(official_answer, dict):
+        reply_text = (official_answer.get("text") or official_answer.get("comment") or "").strip() or None
+
+    return {
+        "external_id": external_id,
+        "author": author,
+        "rating": int(rating) if rating is not None else None,
+        "text": text,
+        "date": date,
+        "reply_status": "replied" if official_answer else "pending",
+        "reply_text": reply_text,
+    }
+
+
 def fetch_reviews(url: str, max_reviews: int = 10, lookback_days: int = 60, token: str | None = None) -> list[dict]:
     """token — необязательный override (см. scripts/competitors/collect.py:
     разовый полный сбор конкурентов использует ОТДЕЛЬНЫЙ Apify-аккаунт
@@ -85,37 +119,7 @@ def fetch_reviews(url: str, max_reviews: int = 10, lookback_days: int = 60, toke
 
     results = []
     for item in items:
-        text = item.get("text") or ""
-        author = item.get("authorName")
-        rating = item.get("rating")
-        date = item.get("dateCreated")
-
-        # Пустая запись без текста и рейтинга — не отзыв (видели такое на проблемных
-        # прогонах актора, 2026-07-30), тот же фильтр, что в collectors/yandex_maps.py.
-        if not text and rating is None:
-            continue
-
-        external_id = str(item.get("reviewId") or synthetic_id(author, date, text[:80]))
-
-        official_answer = item.get("officialAnswer")
-        reply_text = None
-        # Форма officialAnswer в ответе актора не задокументирована — на практике
-        # видели то строку, то объект с текстовым полем; берём что есть, не падаем
-        # на неожиданной форме (сам факт наличия уже достаточен для reply_status).
-        if isinstance(official_answer, str):
-            reply_text = official_answer.strip() or None
-        elif isinstance(official_answer, dict):
-            reply_text = (official_answer.get("text") or official_answer.get("comment") or "").strip() or None
-
-        results.append(
-            {
-                "external_id": external_id,
-                "author": author,
-                "rating": int(rating) if rating is not None else None,
-                "text": text,
-                "date": date,
-                "reply_status": "replied" if official_answer else "pending",
-                "reply_text": reply_text,
-            }
-        )
+        parsed = _parse_item(item)
+        if parsed:
+            results.append(parsed)
     return results
